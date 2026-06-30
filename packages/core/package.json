@@ -1,0 +1,63 @@
+{
+  "name": "@refpool/core",
+  "version": "0.0.0",
+  "description": "A keyed, reference-counted, bounded LRU resource pool with orphan handoff and pluggable circuit breakers. Generic-first; multi-tenant DB connection pooling is the flagship use case.",
+  "license": "MIT",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "type": "module",
+  "sideEffects": false,
+  "keywords": [
+    "pool",
+    "resource-pool",
+    "reference-counting",
+    "lru",
+    "circuit-breaker",
+    "multi-tenant",
+    "connection-pool"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atulsingh-harsh/refpool.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/core#readme",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./opossum": {
+      "types": "./dist/opossum.d.ts",
+      "import": "./dist/opossum.js",
+      "require": "./dist/opossum.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "opossum": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "opossum": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/opossum": "^8.1.7",
+    "opossum": "^8.4.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
