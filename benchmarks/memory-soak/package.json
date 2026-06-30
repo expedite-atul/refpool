@@ -1,0 +1,20 @@
+{
+  "name": "@refpool/benchmark-memory-soak",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Memory soak benchmark: unbounded Map (cache-a-connection-per-tenant-forever anti-pattern) vs a bounded RefCountedLruPool, measuring RSS/heap over time.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "bench": "node --expose-gc --import tsx src/index.ts"
+  },
+  "dependencies": {
+    "@refpool/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

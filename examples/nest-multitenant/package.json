@@ -1,0 +1,30 @@
+{
+  "name": "@refpool/example-nest-multitenant",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runnable NestJS multi-tenant app: per-tenant Postgres pools via @refpool/nestjs + @refpool/pg, header-keyed middleware, and a connection-health endpoint.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@refpool/core": "workspace:*",
+    "@refpool/nestjs": "workspace:*",
+    "@refpool/pg": "workspace:*",
+    "pg": "^8.13.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

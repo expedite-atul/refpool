@@ -84,17 +84,17 @@
 
 ---
 
-## Phase 5 — Examples + benchmark  🔄 (Task #6 — next up)
+## Phase 5 — Examples + benchmark  ✅ (Task #6)
 
-- [ ] `examples/nest-multitenant` (runnable demo)
-- [ ] `examples/generic-http-clients` (non-DB proof of generic positioning)
-- [ ] `benchmarks/memory-soak` (unbounded `Map` vs pool, RSS over time → chart/CSV — generates the real numbers)
+- [x] `examples/nest-multitenant` (runnable demo)
+- [x] `examples/generic-http-clients` (non-DB proof of generic positioning)
+- [x] `benchmarks/memory-soak` (unbounded `Map` vs pool, RSS over time → chart/CSV — generates the real numbers)
 
 **Exit criteria:** examples run; benchmark emits CSV + chart artifacts.
 
 ---
 
-## Phase 6 — Docs + ready-to-publish dry-run  ⏳ (Task #7)
+## Phase 6 — Docs + ready-to-publish dry-run  🔄 (Task #7)
 
 - [ ] Per-package READMEs + root README ("to my past self", generic-first, DB as flagship)
 - [ ] `changeset version`
