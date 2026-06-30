@@ -1,6 +1,6 @@
 {
   "name": "@refpool/pg",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Multi-tenant node-postgres (pg) Pool pooling built on @refpool/core's reference-counted, bounded LRU pool.",
   "license": "MIT",
   "author": "Atul Singh <atulsingh.harsh@gmail.com>",
@@ -17,10 +17,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
     "directory": "packages/node-postgres"
   },
   "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/node-postgres#readme",
+  "bugs": {
+    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -32,7 +38,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",

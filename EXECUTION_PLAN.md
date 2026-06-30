@@ -94,20 +94,25 @@
 
 ---
 
-## Phase 6 — Docs + ready-to-publish dry-run  🔄 (Task #7)
+## Phase 6 — Docs + ready-to-publish dry-run  ✅ (Task #7 — docs written; dry-run clean; nothing published)
 
-- [ ] Per-package READMEs + root README ("to my past self", generic-first, DB as flagship)
-- [ ] `changeset version`
-- [ ] `pnpm -r build`
-- [ ] `npm pack` tarball inspection (per publishable package)
-- [ ] `package.json` metadata check (files, exports, types, repo, license)
+- [x] Per-package READMEs + root README ("to my past self", generic-first, DB as flagship)
+- [x] `changeset version` (initial-release changeset → all 8 `@refpool/*` bumped 0.0.0 → **0.1.0**; CHANGELOGs written; md consumed; `workspace:*` deps intact)
+- [x] `pnpm -r build` (built per-package via `tsup`; every `packages/*/dist` has ESM + CJS + dts)
+- [x] `npm pack` tarball inspection (per publishable package — each tarball has `dist/**`, `README.md`, `package.json`, `LICENSE`; no `src`/tests/tsconfig; `types`/`exports` targets all present)
+- [x] `package.json` metadata check (files, exports, types, repo, license, bugs, homepage, `publishConfig.access: public`)
 - [ ] ⛔ **STOP** — no `npm publish`, no GitHub repo creation (manual / owner-run)
 
-**Exit criteria:** clean dry-run; tarballs inspected; nothing published.
+> Repository OWNER placeholder used in all package metadata: **`atulsingh-harsh`**
+> (derived from the author email `atulsingh.harsh@gmail.com`). The owner should
+> correct the `repository.url` / `homepage` / `bugs` fields if the real GitHub
+> handle differs.
+
+**Exit criteria:** clean dry-run; tarballs inspected; nothing published. ✅
 
 ---
 
 ## Manual / owner-run (never automated)
 
-- ⏸️ `npm publish`
-- ⏸️ GitHub repo creation / push to remote
+- ⏸️ `npm publish` / `changeset publish` — **not run** (owner-run)
+- ⏸️ GitHub repo creation / `git remote add` / push to remote — **not run** (owner-run)

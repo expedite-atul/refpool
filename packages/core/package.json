@@ -1,6 +1,6 @@
 {
   "name": "@refpool/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A keyed, reference-counted, bounded LRU resource pool with orphan handoff and pluggable circuit breakers. Generic-first; multi-tenant DB connection pooling is the flagship use case.",
   "license": "MIT",
   "author": "Atul Singh <atulsingh.harsh@gmail.com>",
@@ -17,10 +17,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
     "directory": "packages/core"
   },
   "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -37,7 +43,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",

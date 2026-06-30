@@ -1,6 +1,6 @@
 {
   "name": "@refpool/prisma",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Multi-tenant PrismaClient pooling built on @refpool/core's reference-counted, bounded LRU pool.",
   "license": "MIT",
   "author": "Atul Singh <atulsingh.harsh@gmail.com>",
@@ -16,10 +16,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
     "directory": "packages/prisma"
   },
   "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/prisma#readme",
+  "bugs": {
+    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,7 +37,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
