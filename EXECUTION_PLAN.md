@@ -114,5 +114,5 @@
 
 ## Manual / owner-run (never automated)
 
-- ⏸️ `npm publish` / `changeset publish` — **not run** (owner-run)
-- ⏸️ GitHub repo creation / `git remote add` / push to remote — **not run** (owner-run)
+- ⏸️ `npm publish` / `changeset publish` — **not run** (owner-run). Verified publish-ready: `npm publish --dry-run` passed for all 8 `@refpool/*` packages (each `0.1.0`, `public` access, tarball = dist + README + LICENSE + package.json only). A real publish requires npm auth (`npm login` / `NPM_TOKEN`), which is not present here.
+- ⏸️ GitHub repo creation / `git remote add` / push to remote — **not run** (owner-run; explicitly skipped per request).
