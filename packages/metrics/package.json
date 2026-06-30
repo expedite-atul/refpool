@@ -1,0 +1,76 @@
+{
+  "name": "@refpool/metrics",
+  "version": "0.0.0",
+  "description": "Prometheus and OpenTelemetry metric exporters for @refpool/core pools, plus a ready-to-import Grafana dashboard.",
+  "license": "MIT",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "type": "module",
+  "sideEffects": false,
+  "keywords": [
+    "pool",
+    "metrics",
+    "prometheus",
+    "prom-client",
+    "opentelemetry",
+    "otel",
+    "observability",
+    "refpool"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atulsingh-harsh/refpool.git",
+    "directory": "packages/metrics"
+  },
+  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/metrics#readme",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./prometheus": {
+      "types": "./dist/prometheus.d.ts",
+      "import": "./dist/prometheus.js",
+      "require": "./dist/prometheus.cjs"
+    },
+    "./opentelemetry": {
+      "types": "./dist/opentelemetry.d.ts",
+      "import": "./dist/opentelemetry.js",
+      "require": "./dist/opentelemetry.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@refpool/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "prom-client": "^15.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "prom-client": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@types/node": "^22.10.2",
+    "prom-client": "^15.1.3",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

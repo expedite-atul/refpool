@@ -1,0 +1,58 @@
+{
+  "name": "@refpool/prisma",
+  "version": "0.0.0",
+  "description": "Multi-tenant PrismaClient pooling built on @refpool/core's reference-counted, bounded LRU pool.",
+  "license": "MIT",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "type": "module",
+  "sideEffects": false,
+  "keywords": [
+    "prisma",
+    "prisma-client",
+    "pool",
+    "multi-tenant",
+    "connection-pool",
+    "refpool"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atulsingh-harsh/refpool.git",
+    "directory": "packages/prisma"
+  },
+  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/prisma#readme",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@refpool/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@prisma/client": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@prisma/client": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
