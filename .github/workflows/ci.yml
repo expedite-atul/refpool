@@ -19,6 +19,6 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build       # build first so cross-package (@refpool/*) types resolve
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm build
