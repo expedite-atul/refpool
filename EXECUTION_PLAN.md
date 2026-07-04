@@ -103,10 +103,9 @@
 - [x] `package.json` metadata check (files, exports, types, repo, license, bugs, homepage, `publishConfig.access: public`)
 - [ ] ⛔ **STOP** — no `npm publish`, no GitHub repo creation (manual / owner-run)
 
-> Repository OWNER placeholder used in all package metadata: **`atulsingh-harsh`**
-> (derived from the author email `atulsingh.harsh@gmail.com`). The owner should
-> correct the `repository.url` / `homepage` / `bugs` fields if the real GitHub
-> handle differs.
+> Repository owner in all package metadata: **`expedite-atul`**
+> (`repository.url` / `homepage` / `bugs` → `github.com/expedite-atul/refpool`).
+> Author: Atul Singh — portfolio **https://atulsingh.io**.
 
 **Exit criteria:** clean dry-run; tarballs inspected; nothing published. ✅
 

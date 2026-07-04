@@ -36,14 +36,14 @@ flowchart TB
         direction TB
         R1["3,000 tenants<br/>touched over time"] --> M["map.get(t) ?? map.set(t, open(t))"]
         M --> G["Map grows to 3,000 entries<br/>and never shrinks"]
-        G --> MEM["≈ 574 MB peak RSS<br/>3,000 live connections held forever"]
+        G --> MEM["~600+ MB peak RSS<br/>3,000 live connections held forever"]
     end
 
     subgraph pool["✅ RefCountedLruPool (max: 50)"]
         direction TB
         R2["3,000 tenants<br/>touched over time"] --> A["pool.acquire(t) → use → release()"]
         A --> B["bounded: only 50 live at once<br/>refcounted share + LRU/TTL eviction"]
-        B --> MEM2["≈ 104 MB peak RSS<br/>50 live connections retained"]
+        B --> MEM2["~130 MB peak RSS<br/>50 live connections retained"]
     end
 
     naive -.->|"same workload, same 256 KB/conn resource weight"| pool
@@ -53,11 +53,17 @@ The [`benchmarks/memory-soak`](benchmarks/memory-soak) harness drives an
 identical 3,000-key × 4-wave workload (each "connection" owning a 256 KB buffer)
 through both strategies in separate processes and samples `process.memoryUsage()`:
 
-| Strategy | Peak RSS | Live resources retained |
+| Strategy | Live resources retained | Peak RSS |
 | --- | --- | --- |
-| Unbounded `Map` (one pool per tenant, forever) | **≈ 574 MB** | **3,000** |
-| Bounded `RefCountedLruPool` (`max: 50`) | **≈ 104 MB** | **50** |
-| **Improvement** | **≈ 82% lower peak RSS** | **98.3% fewer live resources** |
+| Unbounded `Map` (one pool per tenant, forever) | **3,000** | ~600–670 MB |
+| Bounded `RefCountedLruPool` (`max: 50`) | **50** | ~105–140 MB |
+| **Improvement** | **98.3% fewer live resources** | **~80% lower (4–5×)** |
+
+The live-resource figure is exact and deterministic; peak RSS is machine-dependent
+(quoted as a range). A companion [`benchmarks/eviction-throughput`](benchmarks/eviction-throughput)
+benchmark shows the eviction path is **O(1)** — refpool's intrusive idle-list LRU
+holds per-op cost flat as `max` scales, where a naive full-scan LRU degrades
+linearly (100×+ throughput gap by tens of thousands of live keys).
 
 ---
 
@@ -138,6 +144,16 @@ the **TTL sweep** (`idleTtlMs`). On `drain()`, still-held resources are
 **condemned** and parked in an *orphans* map so drain can wait for their holders
 without blocking new traffic; they are disposed the instant `refCount` hits 0.
 
+The acquire / evict / stats hot paths are **O(1) in live-key count**. Idle
+entries are threaded onto an intrusive doubly-linked **idle list** under one
+invariant — *an entry is on the list ⟺ it is live and `refCount === 0`* — ordered
+head → tail by release recency. So LRU eviction pops the head (O(1)), the TTL
+sweep walks only the expired prefix and stops at the first still-fresh entry
+(O(expired)), and `getStats()` reads a maintained `idleCount` instead of scanning
+(O(1)). `getStats().idle` is that counter; `inUse = live − idle`.
+
+![refpool resource lifecycle animation](assets/architecture-lifecycle.gif)
+
 ```mermaid
 stateDiagram-v2
     [*] --> Creating: acquire(key) miss<br/>(per-key mutex held)
@@ -168,14 +184,41 @@ Two invariants keep this correct under churn:
   `runExclusive(key, …)`; N concurrent first-touches of the same key serialize so
   the `factory` runs **exactly once**. Unused mutex cells are garbage-collected on
   the `mutexGcMs` cadence. A key that has an in-flight `acquire` (`pending > 0`)
-  is never chosen as an LRU/TTL victim.
+  is never chosen as an LRU/TTL victim (the eviction walk skips pending nodes).
 - **Orphan handoff (never yanked mid-flight).** LRU/TTL only ever evict *idle*
   (`refCount === 0`) entries — an in-use resource is never disposed out from under
   a holder. The only way a held resource leaves the live map is `drain()`, which
   moves it to `orphans`, condemns it, and disposes it when its last holder
   releases.
 
+Two further guarantees keep the pool self-bounding and robust in every map:
+
+- **Self-bounding key state.** The same `mutexGcMs` maintenance pass also prunes
+  **per-key circuit breakers** for keys with no live entry, orphan, or pending
+  acquire — but only while a breaker is `closed`, so one actively protecting a
+  flapping key (open / half-open) is never discarded mid-incident.
+- **Isolated event listeners.** Listener exceptions are caught and routed to the
+  logger, never propagated to internal call sites — so a misbehaving `dispose` or
+  metrics listener can never wedge a `drain()` awaiting a resource.
+
 ---
+
+## 3b. refpool & PgBouncer — complementary layers
+
+refpool and PgBouncer pool at **different layers**, and are best used together:
+
+- **PgBouncer** (connection layer): multiplexes many client connections onto a few
+  **server** connections for one database, server-side.
+- **refpool** (client layer): bounds how many per-tenant **clients** (`pg.Pool` /
+  `DataSource` / `PrismaClient`) a Node process holds — reference-counted + LRU.
+  With thousands of tenants on distinct DBs/credentials, or an ORM that owns its own
+  pool, that in-process set grows unbounded even with PgBouncer downstream — because
+  PgBouncer can't see it.
+
+Point each pooled client *at* PgBouncer and both layers win: refpool bounds the
+in-process client set, PgBouncer bounds the server-side connection count.
+
+![refpool + PgBouncer complementary layers animation](assets/multitenant-pgbouncer.gif)
 
 ## 4. `acquire` / `release` sequence (concurrent, same key)
 
@@ -245,6 +288,8 @@ response `finish`/`close` — so the holder's reference is always dropped when t
 request ends. `ConnectionHealthController` exposes live stats at
 `GET /health/connections`.
 
+![NestJS per-tenant request flow animation](assets/integration-nestjs.gif)
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -303,6 +348,8 @@ Every database adapter follows the same two-function shape: a
 does **acquire → run → release** with the release in a `finally`. All the core
 `PoolOptions` (`max`, `idleTtlMs`, `breaker`, `prewarm`, `validate`, …) pass
 straight through.
+
+![adapter usage animation — withResource acquire/run/release across pg, typeorm, drizzle, prisma, knex](assets/integration-adapter.gif)
 
 ```mermaid
 flowchart LR

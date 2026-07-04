@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Multi-tenant Drizzle (node-postgres) database pooling built on @refpool/core's reference-counted, bounded LRU pool.",
   "license": "MIT",
-  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com> (https://atulsingh.io)",
   "type": "module",
   "sideEffects": false,
   "keywords": [
@@ -18,12 +18,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/expedite-atul/refpool.git",
     "directory": "packages/drizzle"
   },
-  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/drizzle#readme",
+  "homepage": "https://github.com/expedite-atul/refpool/tree/main/packages/drizzle#readme",
   "bugs": {
-    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+    "url": "https://github.com/expedite-atul/refpool/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -55,14 +55,6 @@
     "drizzle-orm": "^0.38.0 || ^0.39.0 || ^0.40.0 || ^0.41.0 || ^0.42.0 || ^0.43.0 || ^0.44.0",
     "pg": "^8.0.0"
   },
-  "peerDependenciesMeta": {
-    "drizzle-orm": {
-      "optional": true
-    },
-    "pg": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
@@ -71,5 +63,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

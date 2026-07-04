@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;padding:0;background:#07131c;}
+  svg{display:block;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
+</style></head><body>
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#0e2434" stroke-width="1"/>
+    </pattern>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2f6f86"/></marker>
+  </defs>
+  <rect width="1280" height="720" fill="#07131c"/><rect width="1280" height="720" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1280" height="3" fill="#22d3ee" opacity="0.5"/>
+
+  <text x="56" y="52" font-size="26" font-weight="700" fill="#67e8f9" filter="url(#glow)">refpool</text>
+  <text x="176" y="52" font-size="17" fill="#7fa0b3">resource lifecycle — one live resource per key, shared by refcount, reclaimed by LRU / TTL</text>
+  <line x1="56" y1="70" x2="1224" y2="70" stroke="#143349" stroke-width="1"/>
+
+  <!-- holders -->
+  <rect x="56" y="150" width="150" height="150" rx="10" fill="#0b1a24" stroke="#20475b" stroke-width="1.5"/>
+  <text x="131" y="178" font-size="13" fill="#7fa0b3" text-anchor="middle">holders</text>
+  <rect id="hA" x="76" y="196" width="110" height="34" rx="8" fill="#0c2230" stroke="#2f6f86" stroke-width="1.3"/>
+  <text x="131" y="218" font-size="13" fill="#9fd7ea" text-anchor="middle">acquire(k)</text>
+  <rect id="hB" x="76" y="242" width="110" height="34" rx="8" fill="#0c2230" stroke="#2f6f86" stroke-width="1.3"/>
+  <text x="131" y="264" font-size="13" fill="#9fd7ea" text-anchor="middle">acquire(k)</text>
+
+  <!-- breaker -->
+  <line x1="206" y1="225" x2="300" y2="225" stroke="#2f6f86" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect id="brk" x="300" y="196" width="150" height="60" rx="10" fill="#0c1c26" stroke="#2dd4bf" stroke-width="1.5"/>
+  <text x="375" y="222" font-size="13" font-weight="600" fill="#5eead4" text-anchor="middle">circuit breaker</text>
+  <text id="brkState" x="375" y="242" font-size="12" fill="#7fa0b3" text-anchor="middle">closed ✓</text>
+
+  <!-- entry -->
+  <line x1="450" y1="225" x2="544" y2="225" stroke="#2f6f86" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect id="entry" x="544" y="160" width="250" height="132" rx="12" fill="#0a1c24" stroke="#38bdf8" stroke-width="2"/>
+  <text x="564" y="188" font-size="13" fill="#7dd3fc">Entry&lt;T&gt;  key = "k"</text>
+  <text x="564" y="228" font-size="14" fill="#9fb8c6">refCount</text>
+  <text id="rc" x="700" y="236" font-size="36" font-weight="700" fill="#67e8f9">0</text>
+  <text x="564" y="266" font-size="13" fill="#7fa0b3">state</text>
+  <text id="st" x="620" y="266" font-size="14" font-weight="700" fill="#5eead4">CREATING</text>
+
+  <!-- reclaim -->
+  <line x1="794" y1="225" x2="888" y2="225" stroke="#2f6f86" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect id="reclaim" x="888" y="180" width="150" height="42" rx="9" fill="#0c1c26" stroke="#20475b" stroke-width="1.3"/>
+  <text x="963" y="206" font-size="12.5" fill="#9fb8c6" text-anchor="middle">LRU / TTL sweep</text>
+  <line x1="1038" y1="201" x2="1092" y2="201" stroke="#2f6f86" stroke-width="1.6" marker-end="url(#arr)"/>
+  <rect id="disp" x="1092" y="180" width="132" height="42" rx="9" fill="#170f12" stroke="#5b2530" stroke-width="1.3"/>
+  <text id="dispTxt" x="1158" y="206" font-size="12.5" fill="#8a5560" text-anchor="middle">dispose()</text>
+
+  <!-- state machine strip -->
+  <text x="56" y="372" font-size="13" letter-spacing="1" fill="#4b6b7d">STATE MACHINE</text>
+  <g id="chips"></g>
+
+  <!-- notes -->
+  <text x="56" y="600" font-size="14" fill="#9fb8c6">• In-use resources are <tspan fill="#67e8f9">never evicted</tspan> out from under a holder — a key with a pending acquire is skipped by LRU/TTL.</text>
+  <text x="56" y="628" font-size="14" fill="#9fb8c6">• Concurrent first-touches of a cold key serialize on a per-key mutex → the <tspan fill="#5eead4">factory runs exactly once</tspan>.</text>
+  <text x="56" y="656" font-size="14" fill="#9fb8c6">• On <tspan fill="#67e8f9">drain()</tspan>, still-held resources are condemned to an orphan map and disposed the instant their last holder releases.</text>
+
+  <g id="tokens"></g>
+</svg>
+<script>
+var TOTAL=180;
+var CH=[['CREATING','#5eead4'],['IN-USE','#67e8f9'],['IDLE','#38bdf8'],['EVICTED','#facc15'],['DISPOSED','#f87171']];
+function lerp(a,b,t){return a+(b-a)*t;}
+function seg(p,a,b){return Math.max(0,Math.min(1,(p-a)/(b-a)));}
+function tok(x,y,c){return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="6" fill="'+c+'" filter="url(#glow)"/>';}
+
+function render(f){
+  var p=(f%TOTAL)/TOTAL;
+  // phases
+  var refCount=0, stateIdx=0, brkState='closed ✓', tokens='', dispOn=false, reclaimOn=false;
+  if(p<0.16){ stateIdx=0; refCount = p<0.10?0:1;
+    var t=seg(p,0.0,0.12); tokens+=tok(lerp(186,544,t), 213, '#67e8f9'); if(t>=1) refCount=1;
+  } else if(p<0.32){ stateIdx=1; refCount=1;
+    var t=seg(p,0.16,0.28); tokens+=tok(lerp(186,544,t), 259, '#67e8f9'); if(t>=1) refCount=2;
+  } else if(p<0.50){ stateIdx=1; refCount=2; }
+  else if(p<0.62){ stateIdx=1; refCount=1; }
+  else if(p<0.72){ stateIdx=2; refCount=0; }
+  else if(p<0.84){ stateIdx=2; refCount=0; reclaimOn=true; }
+  else if(p<0.93){ stateIdx=3; refCount=0; reclaimOn=true; }
+  else { stateIdx=4; refCount=0; dispOn=true; }
+
+  document.getElementById('rc').textContent=refCount;
+  document.getElementById('st').textContent=CH[stateIdx][0];
+  document.getElementById('st').setAttribute('fill',CH[stateIdx][1]);
+  document.getElementById('rc').setAttribute('fill', refCount>0?'#67e8f9':'#4b6b7d');
+
+  // entry border reflects state
+  var eb = stateIdx===4?'#5b2530': stateIdx===3?'#facc15': stateIdx===2?'#38bdf8':'#38bdf8';
+  document.getElementById('entry').setAttribute('stroke', eb);
+  document.getElementById('reclaim').setAttribute('stroke', reclaimOn?'#facc15':'#20475b');
+  document.getElementById('disp').setAttribute('stroke', dispOn?'#f87171':'#5b2530');
+  document.getElementById('dispTxt').setAttribute('fill', dispOn?'#f87171':'#8a5560');
+
+  // holders highlight
+  document.getElementById('hA').setAttribute('stroke', refCount>=1&&stateIdx<=1?'#67e8f9':'#2f6f86');
+  document.getElementById('hB').setAttribute('stroke', refCount>=2?'#67e8f9':'#2f6f86');
+
+  // chips
+  var c='', x=56, y=392;
+  for(var i=0;i<CH.length;i++){
+    var on=i===stateIdx, col=CH[i][1];
+    c+='<rect x="'+x+'" y="'+y+'" width="150" height="46" rx="10" fill="'+(on?'#0c2230':'#0a151c')+'" stroke="'+(on?col:'#1b3644')+'" stroke-width="'+(on?2:1.2)+'"'+(on?' filter="url(#glow)"':'')+'/>';
+    c+='<text x="'+(x+75)+'" y="'+(y+29)+'" font-size="14" font-weight="'+(on?700:400)+'" fill="'+(on?col:'#4b6b7d')+'" text-anchor="middle">'+CH[i][0]+'</text>';
+    if(i<CH.length-1) c+='<path d="M'+(x+158)+' '+(y+23)+' h26" stroke="#2f6f86" stroke-width="1.5" marker-end="url(#arr)"/>';
+    x+=192;
+  }
+  document.getElementById('chips').innerHTML=c;
+  document.getElementById('tokens').innerHTML=tokens;
+}
+var m=location.hash.match(/f=(\d+)/);
+render(m?parseInt(m[1]):0);
+</script>
+</body></html>

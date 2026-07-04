@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Prometheus and OpenTelemetry metric exporters for @refpool/core pools, plus a ready-to-import Grafana dashboard.",
   "license": "MIT",
-  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com> (https://atulsingh.io)",
   "type": "module",
   "sideEffects": false,
   "keywords": [
@@ -18,12 +18,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/expedite-atul/refpool.git",
     "directory": "packages/metrics"
   },
-  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/metrics#readme",
+  "homepage": "https://github.com/expedite-atul/refpool/tree/main/packages/metrics#readme",
   "bugs": {
-    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+    "url": "https://github.com/expedite-atul/refpool/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -80,5 +80,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

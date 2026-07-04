@@ -13,7 +13,8 @@ with idle ones reclaimed and their underlying pools `.end()`ed automatically.
 npm install @refpool/drizzle drizzle-orm pg
 ```
 
-`drizzle-orm` and `pg` are **optional** peer dependencies.
+`drizzle-orm` and `pg` are **required** peer dependencies — this package
+statically imports both, so you must install them alongside `@refpool/drizzle`.
 
 ## Usage
 

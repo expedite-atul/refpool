@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;padding:0;background:#07131c;}
+  svg{display:block;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
+</style></head><body>
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#0e2434" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="720" fill="#07131c"/>
+  <rect width="1280" height="720" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1280" height="3" fill="#22d3ee" opacity="0.5"/>
+
+  <!-- header -->
+  <text x="56" y="52" font-size="26" font-weight="700" fill="#67e8f9" filter="url(#glow)">refpool</text>
+  <text x="176" y="52" font-size="17" fill="#7fa0b3">the multi-tenant connection-pool memory leak, in disguise</text>
+  <line x1="56" y1="70" x2="1224" y2="70" stroke="#143349" stroke-width="1"/>
+
+  <!-- ===== LANE A: unbounded Map ===== -->
+  <text x="56" y="108" font-size="15" font-weight="700" letter-spacing="1" fill="#f87171">✗  const pools = new Map&lt;tenantId, Pool&gt;()   ·   never evicted</text>
+  <rect x="56" y="120" width="150" height="210" rx="10" fill="#0b1a24" stroke="#20475b" stroke-width="1.5"/>
+  <text x="131" y="150" font-size="13" fill="#7fa0b3" text-anchor="middle">tenants</text>
+  <text x="131" y="168" font-size="12" fill="#4b6b7d" text-anchor="middle">t1 t2 t3 …</text>
+
+  <!-- accumulating grid container A -->
+  <rect x="330" y="120" width="470" height="210" rx="10" fill="#140d10" stroke="#5b2530" stroke-width="1.5"/>
+  <text x="348" y="144" font-size="12" fill="#f0a0a8" letter-spacing="1">IN-PROCESS · one live Pool per tenant, forever</text>
+  <g id="gridA"></g>
+
+  <!-- gauges A -->
+  <text x="836" y="150" font-size="13" fill="#7fa0b3">live pools</text>
+  <text id="numA" x="836" y="192" font-size="40" font-weight="700" fill="#f87171">0</text>
+  <text x="836" y="214" font-size="12" fill="#4b6b7d">unbounded → 3,000+</text>
+  <text x="836" y="256" font-size="13" fill="#7fa0b3">RSS</text>
+  <rect x="836" y="266" width="360" height="20" rx="6" fill="#10202b"/>
+  <rect id="barA" x="836" y="266" width="4" height="20" rx="6" fill="#ef4444"/>
+  <text id="rssA" x="1196" y="304" font-size="13" fill="#f87171" text-anchor="end">45 MB</text>
+
+  <line x1="56" y1="365" x2="1224" y2="365" stroke="#143349" stroke-width="1" stroke-dasharray="4 5"/>
+
+  <!-- ===== LANE B: refpool ===== -->
+  <text x="56" y="410" font-size="15" font-weight="700" letter-spacing="1" fill="#4ade80">✓  pool.acquire(tenantId)   ·   bounded · reference-counted · LRU</text>
+  <rect x="56" y="422" width="150" height="210" rx="10" fill="#0b1a24" stroke="#20475b" stroke-width="1.5"/>
+  <text x="131" y="452" font-size="13" fill="#7fa0b3" text-anchor="middle">tenants</text>
+  <text x="131" y="470" font-size="12" fill="#4b6b7d" text-anchor="middle">t1 t2 t3 …</text>
+
+  <rect x="330" y="422" width="470" height="210" rx="10" fill="#0a1c15" stroke="#1f5b41" stroke-width="1.5"/>
+  <text x="348" y="446" font-size="12" fill="#86efac" letter-spacing="1">RefCountedLruPool · max 50 · coldest idle evicted</text>
+  <g id="gridB"></g>
+
+  <text x="836" y="452" font-size="13" fill="#7fa0b3">live pools</text>
+  <text id="numB" x="836" y="494" font-size="40" font-weight="700" fill="#4ade80">0</text>
+  <text x="836" y="516" font-size="12" fill="#4b6b7d">bounded = max (50)</text>
+  <text x="836" y="558" font-size="13" fill="#7fa0b3">RSS</text>
+  <rect x="836" y="568" width="360" height="20" rx="6" fill="#10202b"/>
+  <rect id="barB" x="836" y="568" width="4" height="20" rx="6" fill="#22c55e"/>
+  <text id="rssB" x="1196" y="606" font-size="13" fill="#4ade80" text-anchor="end">45 MB</text>
+
+  <!-- footer takeaway -->
+  <text x="56" y="682" font-size="15" fill="#9fb8c6">Same <tspan fill="#67e8f9">acquire(key)</tspan> ergonomics. One line changes the memory profile — <tspan fill="#4ade80">98.3% fewer live connections</tspan>.</text>
+
+  <g id="stream"></g>
+</svg>
+<script>
+var TOTAL=150;
+function ease(p){return 1-Math.pow(1-p,3);}      // easeOutCubic
+function lerp(a,b,t){return a+(b-a)*t;}
+function esc(x){return x;}
+function cell(x,y,c,op){return '<rect x="'+x+'" y="'+y+'" width="15" height="15" rx="3" fill="'+c+'" opacity="'+op.toFixed(2)+'"/>';}
+function dot(x,y,c){return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4.5" fill="'+c+'" opacity="0.9"/>';}
+
+var COLS=16, ROWS=7, CAP=COLS*ROWS, GAP=24;   // 112-cell grid; ~3,000 maps to "full", 50 stays sparse
+function render(f){
+  var p=(f%TOTAL)/TOTAL, e=ease(p);
+  var tenants=Math.floor(e*3000);
+
+  // ---- Lane A: accumulating grid fills completely (sprawl) ----
+  var gxa=350, gya=156;
+  var fillA=Math.min(CAP, Math.round(e*CAP));
+  var a='';
+  for(var i=0;i<CAP;i++){
+    var cx=gxa+(i%COLS)*GAP, cy=gya+Math.floor(i/COLS)*GAP;
+    if(i<fillA) a+=cell(cx,cy,'#ef4444', 0.35+0.5*(1-i/CAP));
+    else a+=cell(cx,cy,'#20141a',1);
+  }
+  document.getElementById('gridA').innerHTML=a;
+  document.getElementById('numA').textContent=tenants.toLocaleString();
+  var rssA=45+e*(610-45);
+  document.getElementById('barA').setAttribute('width', Math.max(4, rssA/640*360).toFixed(0));
+  document.getElementById('rssA').textContent='≈ '+Math.round(rssA)+' MB';
+
+  // ---- Lane B: bounded to 50 lit cells (of 112) with an LRU evict pulse ----
+  var gxb=350, gyb=460;
+  var warm=Math.min(1, tenants/50);
+  var liveB=Math.min(50, tenants);
+  var litB=Math.min(50, Math.round(warm*50));           // never more than 50 lit
+  var flash=litB>0 ? Math.floor(f/4)%50 : -1;           // one of the 50 churns = LRU eviction
+  var b='';
+  for(var i=0;i<CAP;i++){
+    var cx=gxb+(i%COLS)*GAP, cy=gyb+Math.floor(i/COLS)*GAP;
+    if(i<litB){
+      if(i===flash) b+=cell(cx,cy,'#facc15',1);          // evicted/replaced this tick
+      else b+=cell(cx,cy,'#22c55e',0.85);
+    } else b+=cell(cx,cy,'#0f2018',1);                    // dark = headroom under the bound
+  }
+  document.getElementById('gridB').innerHTML=b;
+  document.getElementById('numB').textContent=liveB.toLocaleString();
+  var rssB=45+warm*(132-45);
+  document.getElementById('barB').setAttribute('width', Math.max(4, rssB/640*360).toFixed(0));
+  document.getElementById('rssB').textContent='≈ '+Math.round(rssB)+' MB';
+
+  // ---- token streams (continuous tenant traffic) ----
+  var s='';
+  for(var k=0;k<4;k++){
+    var pr=((p*5)+k/4)%1;
+    s+=dot(lerp(206,330,pr),225,'#67e8f9');
+    s+=dot(lerp(206,330,pr),527,'#67e8f9');
+  }
+  document.getElementById('stream').innerHTML=s;
+}
+var m=location.hash.match(/f=(\d+)/);
+render(m?parseInt(m[1]):0);
+</script>
+</body></html>

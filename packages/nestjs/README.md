@@ -91,6 +91,39 @@ request, and releases it when the response finishes/closes. The resource is
 attached to the request (default property `tenantResource`, plus
 `tenantResourceKey`).
 
+### Drop-in (auto-applied)
+
+`RefPoolModule` implements `NestModule` and wires the middleware for you when you
+opt in via `applyMiddleware: true` or `middleware.routes`. No `configure()` in
+your `AppModule` required:
+
+```ts
+@Module({
+  imports: [
+    RefPoolModule.forRoot<Pool>({
+      max: 20,
+      factory: async (tenantId) => new Pool({ /* ... */ }),
+      // Opt in to auto-wiring. Either flag works:
+      applyMiddleware: true,                       // applies to '*' (all routes)
+      middleware: {
+        header: 'x-tenant-id',
+        onMissing: 'error',
+        routes: ['tenant/*'],                      // or scope to specific routes
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+`applyMiddleware` defaults to `true` when `middleware.routes` is set, otherwise
+`false`. When enabled without explicit `routes`, the middleware is applied to
+`'*'`.
+
+### Manual wiring
+
+You can still apply it yourself for full control over the route configuration:
+
 ```ts
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { TenantConnectionMiddleware } from '@refpool/nestjs';
@@ -104,7 +137,8 @@ export class AppModule implements NestModule {
 ```
 
 Middleware options (set via `forRoot({ middleware })`): `header`,
-`onMissing` (`'next' | 'error'`), `requestProperty`.
+`onMissing` (`'next' | 'error'`), `requestProperty`, `routes`. Plus the
+module-level `applyMiddleware` flag.
 
 ## Health route
 

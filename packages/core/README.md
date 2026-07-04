@@ -8,7 +8,9 @@ HTTP client with a keep-alive agent, a gRPC channel, an SDK instance. You give i
 a `factory(key)` that creates a resource and a `dispose(resource)` that tears it
 down; it guarantees you never hold more than `max` live resources, shares one
 resource between concurrent holders of the same key, and reclaims the coldest
-idle ones under pressure.
+idle ones under pressure. `max` is a **hard ceiling**: when every live resource
+is in use, `acquire` applies backpressure and blocks for a slot (up to
+`acquireTimeoutMs`) rather than exceeding it.
 
 > **Generic-first.** The flagship use case is multi-tenant database connection
 > pooling (see the `@refpool/*` adapters), but nothing here is database-specific.
@@ -54,7 +56,7 @@ await pool.stop();               // drain + dispose everything on shutdown
 
 | Method | Description |
 | --- | --- |
-| `acquire(key)` | Resolve an `AcquireHandle<T>` (`{ resource, release() }`). Concurrent acquires of the same key share one resource. |
+| `acquire(key)` | Resolve an `AcquireHandle<T>` (`{ resource, release() }`). Concurrent acquires of the same key share one resource. When the pool is saturated it blocks for capacity (up to `acquireTimeoutMs`); rejects with `AcquireTimeoutError`, `PoolExhaustedError`, or `PoolClosedError`. |
 | `release(key)` | Convenience: drop one reference from the live (or orphaned) resource for `key`. Prefer the handle's `release()`. |
 | `getStats()` | Snapshot of `PoolStats` (see below). |
 | `warm(strategy?)` | Pre-create resources per a `PrewarmStrategy` (defaults to `options.prewarm`). |
@@ -68,7 +70,9 @@ await pool.stop();               // drain + dispose everything on shutdown
 | Option | Type | Notes |
 | --- | --- | --- |
 | `factory` | `(key) => Promise<T>` | **Required.** Invoked at most once per live key. |
-| `max` | `number` | **Required.** Upper bound on live keyed resources. |
+| `max` | `number` | **Required.** Hard ceiling on live keyed resources. `<= 0` disables the bound (no backpressure). |
+| `acquireTimeoutMs` | `number` | Max time an `acquire` may block for capacity before rejecting with `AcquireTimeoutError`. Default `30_000`; `Infinity` waits forever. |
+| `maxWaiters` | `number` | Cap on acquires queued for capacity at once; once full, further acquires reject with `PoolExhaustedError`. Unbounded by default. |
 | `dispose` | `(resource, key) => void \| Promise<void>` | Tear-down; invoked at most once per resource. |
 | `idleTtlMs` | `number` | Reclaim resources idle at least this long. |
 | `mutexGcMs` | `number` | Drop unused per-key mutex cells older than this. |
@@ -80,8 +84,18 @@ await pool.stop();               // drain + dispose everything on shutdown
 
 ### `PoolStats`
 
-`keys`, `live`, `idle`, `inUse`, `waiters`, `created`, `disposed`, `evicted`,
-`hits`, `misses`, and `breaker` (cumulative transitions per state).
+`keys`, `live`, `idle`, `inUse`, `waiters` (acquires currently blocked for
+capacity), `created`, `disposed`, `evicted`, `hits`, `misses`, and `breaker`
+(cumulative transitions per state).
+
+### Errors
+
+`acquire()` can reject with typed errors you can branch on:
+
+- `AcquireTimeoutError` — waited longer than `acquireTimeoutMs` for a free slot.
+- `PoolExhaustedError` — the capacity-waiter queue is already at `maxWaiters`.
+- `PoolClosedError` — the pool has been (or is being) `stop()`/`drain()`-ed.
+- `CircuitOpenError` — a breaker short-circuited the `factory` call.
 
 ### Events
 

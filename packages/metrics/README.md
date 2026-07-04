@@ -16,8 +16,19 @@ npm install prom-client            # for the Prometheus binding
 npm install @opentelemetry/api     # for the OpenTelemetry binding
 ```
 
-`prom-client` and `@opentelemetry/api` are **optional** peer dependencies — pull
-in only the one you need.
+Both peers are **optional**, because the two exporters live on independent
+subpaths — install only the one you use:
+
+| Subpath | Required peer |
+| --- | --- |
+| `@refpool/metrics/prometheus` | `prom-client` |
+| `@refpool/metrics/opentelemetry` | `@opentelemetry/api` |
+
+The Prometheus binding loads `prom-client` lazily, so importing
+`@refpool/metrics/prometheus` without it installed does not crash on import —
+`bindPrometheus()` throws a clear `install prom-client to use the Prometheus
+exporter` error only if you actually call it. The OpenTelemetry binding takes a
+`Meter` you supply, so it never hard-requires `@opentelemetry/api` at runtime.
 
 ## Metric names
 

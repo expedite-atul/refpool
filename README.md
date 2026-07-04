@@ -7,6 +7,8 @@ This README is written to my past self: the version of me who, building a
 multi-tenant service, reached for the obvious thing and got burned by it. If
 that's you right now, read on.
 
+![The multi-tenant connection-pool memory leak, in disguise — unbounded Map vs bounded RefCountedLruPool](assets/hero-memory.gif)
+
 ---
 
 ## The problem (a memory leak in disguise)
@@ -44,8 +46,10 @@ request is mid-flight on).
 
 What you actually want is a **bounded, reference-counted pool keyed by tenant**:
 
-- **Bounded** — never hold more than `max` live resources. The coldest *idle* one
-  is evicted (LRU) when a new key would exceed the ceiling.
+- **Bounded** — `max` is a *hard ceiling*: never more than `max` live resources.
+  A new key evicts the coldest *idle* one (LRU) to make room, and when every live
+  resource is in use, `acquire` applies backpressure — it *blocks* for a slot (up
+  to `acquireTimeoutMs`) instead of over-provisioning.
 - **Reference-counted** — concurrent requests for the same tenant share one
   resource; it only becomes reclaimable when the *last* holder releases. No
   request ever has its connection pulled out from under it.
@@ -56,6 +60,24 @@ What you actually want is a **bounded, reference-counted pool keyed by tenant**:
 
 That's `refpool`. The core is **generic** — it pools *any* expensive keyed
 resource — and the database story is the flagship application built on top of it.
+
+### How it works
+
+A single live resource per key, shared by reference count, reclaimed by LRU / TTL —
+in-use resources are never pulled out from under a holder:
+
+![refpool resource lifecycle — acquire, refcount share, LRU/TTL evict, dispose](assets/architecture-lifecycle.gif)
+
+## refpool & PgBouncer (multi-tenancy)
+
+"Doesn't PgBouncer already do connection pooling?" — it does, at a *different layer*.
+**PgBouncer** multiplexes many client connections onto a few **server** connections,
+for one database. **refpool** bounds how many per-tenant **clients** (`pg.Pool` /
+`DataSource` / `PrismaClient`) your Node process holds — the in-process sprawl
+PgBouncer can't see. They're complementary: point each pooled client *at* PgBouncer
+and both layers win.
+
+![refpool + PgBouncer — client layer vs connection layer, used together](assets/multitenant-pgbouncer.gif)
 
 ## Quick start (the generic core)
 
@@ -94,20 +116,31 @@ const pool = createPgPool({ max: 25, config: (t) => ({ connectionString: urlFor(
 const { rows } = await withResource(pool, tenantId, (pg) => pg.query('select now()'));
 ```
 
-## Does it actually help? (benchmark)
+## Does it actually help? (benchmarks)
 
-[`benchmarks/memory-soak`](benchmarks/memory-soak) runs the **unbounded `Map`
-anti-pattern** against a bounded `RefCountedLruPool` over 3,000 distinct tenant
-keys (each "connection" owning a 256 KB buffer), recording RSS over time.
+**Memory** — [`benchmarks/memory-soak`](benchmarks/memory-soak) runs the
+**unbounded `Map` anti-pattern** against a bounded `RefCountedLruPool` over 3,000
+distinct tenant keys (each "connection" owning a 256 KB buffer), recording RSS
+over time.
 
-| Strategy | Peak RSS | Live resources retained |
+| Strategy | Live resources retained | Peak RSS |
 | --- | --- | --- |
-| Unbounded `Map` (one pool per tenant, forever) | **≈ 574 MB** | **3,000** |
-| Bounded `RefCountedLruPool` (`max: 50`) | **≈ 104 MB** | **50** |
-| **Improvement** | **≈ 82% lower peak RSS** | **98.3% fewer live resources** |
+| Unbounded `Map` (one pool per tenant, forever) | **3,000** | ~600–670 MB |
+| Bounded `RefCountedLruPool` (`max: 50`) | **50** | ~105–140 MB |
+| **Improvement** | **98.3% fewer live resources** | **~80% lower (4–5×)** |
 
-Same workload, same resource weight — the only difference is the bound. Numbers
-are reproducible: `pnpm --filter @refpool/benchmark-memory-soak bench`.
+The live-resource reduction is exact and deterministic (`3,000 → 50`); peak RSS
+is machine-dependent, so it's quoted as a range — expect ~80% / 4–5× lower.
+
+**CPU / scale** — [`benchmarks/eviction-throughput`](benchmarks/eviction-throughput)
+proves the bounding stays *cheap*: it pits refpool's O(1) intrusive idle-list
+eviction against a naive full-scan LRU across a geometrically growing `max`.
+refpool's per-op cost stays roughly flat while the naive scan degrades linearly —
+the speedup grows from ~1× at `max=64` to **100×+** by tens of thousands of live
+keys.
+
+Both are reproducible: `pnpm --filter @refpool/benchmark-memory-soak bench` and
+`pnpm --filter @refpool/benchmark-eviction-throughput bench`.
 
 ## Packages
 
@@ -159,12 +192,18 @@ optional [`opossum`](https://github.com/nodeshift/opossum) breaker.
 ```
 packages/      publishable @refpool/* packages
 examples/      runnable demos (not published)
-benchmarks/    memory-soak benchmark (not published)
+benchmarks/    memory-soak + eviction-throughput benchmarks (not published)
 grafana/       importable dashboard JSON
 ```
 
 This is a pnpm + changesets monorepo. `pnpm build` builds every package,
 `pnpm test` runs the suite, and releases are versioned with changesets.
+
+## Author
+
+Built by **Atul Singh** — [atulsingh.io](https://atulsingh.io) ·
+[github.com/expedite-atul](https://github.com/expedite-atul).
+Issues and PRs welcome at [expedite-atul/refpool](https://github.com/expedite-atul/refpool).
 
 ## License
 

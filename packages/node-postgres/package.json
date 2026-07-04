@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Multi-tenant node-postgres (pg) Pool pooling built on @refpool/core's reference-counted, bounded LRU pool.",
   "license": "MIT",
-  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com> (https://atulsingh.io)",
   "type": "module",
   "sideEffects": false,
   "keywords": [
@@ -17,12 +17,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/expedite-atul/refpool.git",
     "directory": "packages/node-postgres"
   },
-  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/node-postgres#readme",
+  "homepage": "https://github.com/expedite-atul/refpool/tree/main/packages/node-postgres#readme",
   "bugs": {
-    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+    "url": "https://github.com/expedite-atul/refpool/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -53,11 +53,6 @@
   "peerDependencies": {
     "pg": "^8.0.0"
   },
-  "peerDependenciesMeta": {
-    "pg": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@testcontainers/postgresql": "^10.16.0",
     "@types/node": "^22.10.2",
@@ -66,5 +61,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

@@ -13,7 +13,8 @@ for the same tenant, with the coldest idle ones reclaimed automatically.
 npm install @refpool/typeorm typeorm
 ```
 
-`typeorm` is an **optional** peer dependency (`^0.3.0`).
+`typeorm` (`^0.3.0`) is a **required** peer dependency — this package statically
+imports it, so you must install `typeorm` alongside `@refpool/typeorm`.
 
 ## Usage
 

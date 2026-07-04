@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;padding:0;background:#07131c;}
+  svg{display:block;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
+</style></head><body>
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#0e2434" stroke-width="1"/>
+    </pattern>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2f6f86"/></marker>
+  </defs>
+  <rect width="1280" height="720" fill="#07131c"/><rect width="1280" height="720" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1280" height="3" fill="#22d3ee" opacity="0.5"/>
+
+  <text x="56" y="52" font-size="26" font-weight="700" fill="#67e8f9" filter="url(#glow)">refpool</text>
+  <text x="176" y="52" font-size="17" fill="#7fa0b3">+ PgBouncer — different layers of connection pooling, used together</text>
+  <line x1="56" y1="70" x2="1224" y2="70" stroke="#143349" stroke-width="1"/>
+
+  <!-- tenants -->
+  <text x="60" y="112" font-size="13" letter-spacing="1" fill="#4b6b7d">TENANTS (thousands)</text>
+  <g id="tenants"></g>
+
+  <!-- Node process boundary + refpool client layer -->
+  <rect x="250" y="98" width="440" height="500" rx="14" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="270" y="126" font-size="13" fill="#7dd3fc">Node process</text>
+  <rect x="276" y="140" width="388" height="440" rx="12" fill="#0a1622" stroke="#1f5f78" stroke-width="1.5"/>
+  <text x="296" y="170" font-size="15" font-weight="700" fill="#5eead4">refpool · RefCountedLruPool</text>
+  <text x="296" y="190" font-size="12.5" fill="#7fa0b3">CLIENT layer — bounds per-tenant Pool / DataSource</text>
+  <text x="296" y="208" font-size="12.5" fill="#7fa0b3">reference-counted · LRU · max 5</text>
+  <g id="clients"></g>
+  <text id="capUnbounded" x="296" y="560" font-size="12.5" fill="#f0a0a8">without refpool: N tenants → N client pools in-process, forever</text>
+
+  <!-- PgBouncer -->
+  <rect x="760" y="250" width="210" height="220" rx="12" fill="#0c1c26" stroke="#2dd4bf" stroke-width="1.8"/>
+  <text x="865" y="286" font-size="16" font-weight="700" fill="#5eead4" text-anchor="middle">PgBouncer</text>
+  <text x="865" y="308" font-size="12" fill="#7fa0b3" text-anchor="middle">CONNECTION layer</text>
+  <text x="865" y="326" font-size="12" fill="#7fa0b3" text-anchor="middle">multiplex → few</text>
+  <text x="865" y="342" font-size="12" fill="#7fa0b3" text-anchor="middle">server connections</text>
+  <g id="pbslots"></g>
+
+  <!-- Postgres -->
+  <ellipse cx="1120" cy="300" rx="70" ry="18" fill="#0c1c26" stroke="#38bdf8" stroke-width="1.6"/>
+  <path d="M1050 300 V420 A70 18 0 0 0 1190 420 V300" fill="#0a1622" stroke="#38bdf8" stroke-width="1.6"/>
+  <ellipse cx="1120" cy="300" rx="70" ry="18" fill="#0c1c26" stroke="#38bdf8" stroke-width="1.6"/>
+  <text x="1120" y="380" font-size="15" font-weight="700" fill="#7dd3fc" text-anchor="middle">PostgreSQL</text>
+
+  <!-- flow tokens -->
+  <g id="flow"></g>
+
+  <!-- legend -->
+  <line x1="56" y1="628" x2="1224" y2="628" stroke="#143349" stroke-width="1"/>
+  <text x="56" y="656" font-size="13.5" fill="#9fb8c6"><tspan fill="#5eead4">refpool</tspan> bounds how many per-tenant clients (Pool / DataSource / PrismaClient) your process holds — the thing PgBouncer can't see.</text>
+  <text x="56" y="680" font-size="13.5" fill="#9fb8c6"><tspan fill="#5eead4">PgBouncer</tspan> multiplexes those clients' connections onto few server connections. <tspan fill="#67e8f9">Point each pooled client at PgBouncer — both layers win.</tspan></text>
+</svg>
+<script>
+var TOTAL=150;
+function lerp(a,b,t){return a+(b-a)*t;}
+function tok(x,y,c,r){return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+(r||5)+'" fill="'+c+'" opacity="0.92"/>';}
+
+// tenant chips (left)
+var TENY=[150,196,242,288,334,380];
+(function(){
+  var t='';
+  for(var i=0;i<TENY.length;i++){
+    t+='<rect x="70" y="'+TENY[i]+'" width="150" height="34" rx="8" fill="#0c2230" stroke="#2f6f86" stroke-width="1.2"/>';
+    t+='<text x="145" y="'+(TENY[i]+22)+'" font-size="12.5" fill="#9fd7ea" text-anchor="middle">tenant-'+(i+1)+'</text>';
+  }
+  t+='<text x="145" y="428" font-size="16" fill="#4b6b7d" text-anchor="middle">⋮  3,000+</text>';
+  document.getElementById('tenants').innerHTML=t;
+})();
+// bounded client pools (inside refpool) — exactly 5
+var CLY=[236,296,356,416,476];
+(function(){
+  var c='';
+  for(var i=0;i<CLY.length;i++){
+    c+='<rect x="296" y="'+CLY[i]+'" width="340" height="44" rx="9" fill="#0c2230" stroke="#2f6f86" stroke-width="1.3"/>';
+    c+='<circle cx="320" cy="'+(CLY[i]+22)+'" r="6" fill="#4ade80"/>';
+    c+='<text x="342" y="'+(CLY[i]+27)+'" font-size="13" fill="#9fd7ea">pg.Pool  key=tenant-'+(i+1)+'</text>';
+  }
+  document.getElementById('clients').innerHTML=c;
+})();
+// PgBouncer server slots (few)
+(function(){
+  var s='';
+  var ys=[380,410,440];
+  for(var i=0;i<ys.length;i++) s+='<rect x="800" y="'+ys[i]+'" width="130" height="16" rx="5" fill="#0e3a33" stroke="#2dd4bf" stroke-width="1"/>';
+  s+='<text x="865" y="368" font-size="11" fill="#5eead4" text-anchor="middle">server conns</text>';
+  document.getElementById('pbslots').innerHTML=s;
+})();
+
+function render(f){
+  var p=(f%TOTAL)/TOTAL;
+  var flow='';
+  // tenants -> client pools (many arrows converge to the bounded 5)
+  for(var k=0;k<5;k++){
+    var pr=((p*3)+k*0.2)%1;
+    var srcY=TENY[k%TENY.length]+17, dstY=CLY[k]+22;
+    flow+=tok(lerp(220,296,pr), lerp(srcY,dstY,pr), '#67e8f9');
+  }
+  // client pools -> PgBouncer
+  for(var k=0;k<5;k++){
+    var pr=((p*3)+k*0.17)%1;
+    flow+=tok(lerp(636,760,pr), lerp(CLY[k]+22,360,pr), '#5eead4');
+  }
+  // PgBouncer -> Postgres
+  for(var k=0;k<3;k++){
+    var pr=((p*3)+k*0.33)%1;
+    flow+=tok(lerp(970,1055,pr), lerp(388,340,pr), '#7dd3fc');
+  }
+  document.getElementById('flow').innerHTML=flow;
+}
+var m=location.hash.match(/f=(\d+)/);
+render(m?parseInt(m[1]):0);
+</script>
+</body></html>

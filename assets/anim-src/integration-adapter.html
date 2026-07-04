@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;padding:0;background:#07131c;}
+  svg{display:block;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;}
+</style></head><body>
+<svg id="s" width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#0e2434" stroke-width="1"/>
+    </pattern>
+    <marker id="arr" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2f6f86"/></marker>
+  </defs>
+  <rect width="1280" height="720" fill="#07131c"/><rect width="1280" height="720" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1280" height="3" fill="#22d3ee" opacity="0.5"/>
+
+  <text x="56" y="52" font-size="26" font-weight="700" fill="#67e8f9" filter="url(#glow)">refpool</text>
+  <text x="176" y="52" font-size="17" fill="#7fa0b3">one API, every driver — withResource(pool, key, fn) = acquire → run → release</text>
+  <line x1="56" y1="70" x2="1224" y2="70" stroke="#143349" stroke-width="1"/>
+
+  <!-- withResource flow -->
+  <text x="56" y="112" font-size="13" letter-spacing="1" fill="#4b6b7d">withResource(pool, tenantId, fn)</text>
+  <g id="flowG"></g>
+
+  <!-- adapters swap strip -->
+  <text x="56" y="470" font-size="13" letter-spacing="1" fill="#4b6b7d">SAME CORE — ONLY THE POOLED RESOURCE CHANGES</text>
+  <g id="adaptersG"></g>
+
+  <!-- active adapter detail -->
+  <rect x="56" y="600" width="1168" height="76" rx="12" fill="#0a1622" stroke="#1b3644" stroke-width="1.2"/>
+  <text x="76" y="632" font-size="13.5" fill="#7fa0b3">factory:</text>
+  <text id="facTxt" x="150" y="632" font-size="13.5" fill="#5eead4">new Pool(config(key))</text>
+  <text x="76" y="658" font-size="13.5" fill="#7fa0b3">dispose:</text>
+  <text id="disTxt" x="150" y="658" font-size="13.5" fill="#7dd3fc">pool.end()</text>
+  <text x="720" y="632" font-size="13.5" fill="#7fa0b3">pooled resource:</text>
+  <text id="resTxt" x="880" y="632" font-size="13.5" fill="#facc15">pg.Pool</text>
+  <text x="720" y="658" font-size="13.5" fill="#7fa0b3">package:</text>
+  <text id="pkgTxt" x="880" y="658" font-size="13.5" fill="#67e8f9">@refpool/pg</text>
+
+  <g id="tokens"></g>
+</svg>
+<script>
+var TOTAL=180;
+var STEPS=[
+  {x:120, w:230, t:'acquire(key)', s:'shared · refcounted'},
+  {x:430, w:300, t:'fn(handle.resource)', s:'run your query'},
+  {x:810, w:330, t:'finally → release()', s:'drop this holder’s ref'}
+];
+var ADAPTERS=[
+  {pkg:'@refpool/pg',       res:'pg.Pool',        fac:'new Pool(config(key))',                    dis:'pool.end()'},
+  {pkg:'@refpool/typeorm',  res:'DataSource',     fac:'new DataSource(config(key)).initialize()', dis:'dataSource.destroy()'},
+  {pkg:'@refpool/drizzle',  res:'NodePgDatabase', fac:'drizzle(new Pool(config(key)))',           dis:'pool.end()'},
+  {pkg:'@refpool/prisma',   res:'PrismaClient',   fac:'client(key).$connect()',                   dis:'client.$disconnect()'},
+  {pkg:'@refpool/knex',     res:'Knex',           fac:'knex(config(key))',                        dis:'knex.destroy()'}
+];
+function lerp(a,b,t){return a+(b-a)*t;}
+function tok(x,y,c){return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="7" fill="'+c+'" filter="url(#glow)"/>';}
+
+function render(f){
+  var p=(f%TOTAL)/TOTAL;
+  // flow steps
+  var g='', yy=150, hh=150;
+  var stepActive=Math.min(2, Math.floor(((p*2)%1)*3));
+  for(var i=0;i<STEPS.length;i++){
+    var S=STEPS[i], on=i===stepActive, col=i===2?'#38bdf8':'#2dd4bf';
+    g+='<rect x="'+S.x+'" y="'+yy+'" width="'+S.w+'" height="'+hh+'" rx="12" fill="'+(on?'#0c2230':'#0a151c')+'" stroke="'+(on?col:'#1b3644')+'" stroke-width="'+(on?2:1.2)+'"'+(on?' filter="url(#glow)"':'')+'/>';
+    g+='<text x="'+(S.x+18)+'" y="'+(yy+58)+'" font-size="15" font-weight="700" fill="'+(on?col:'#7fa0b3')+'">'+S.t+'</text>';
+    g+='<text x="'+(S.x+18)+'" y="'+(yy+84)+'" font-size="12.5" fill="'+(on?'#cfe6ef':'#4b6b7d')+'">'+S.s+'</text>';
+    if(i<STEPS.length-1) g+='<path d="M'+(S.x+S.w+4)+' '+(yy+hh/2)+' h'+((STEPS[i+1].x)-(S.x+S.w)-8)+'" stroke="#2f6f86" stroke-width="1.6" marker-end="url(#arr)"/>';
+  }
+  document.getElementById('flowG').innerHTML=g;
+
+  // adapters strip — one highlighted, cycling
+  var adaActive=Math.floor(p*ADAPTERS.length)%ADAPTERS.length;
+  var a='', ax=56, aw=216, ay=488, gap=20;
+  for(var i=0;i<ADAPTERS.length;i++){
+    var on=i===adaActive;
+    a+='<rect x="'+ax+'" y="'+ay+'" width="'+aw+'" height="72" rx="11" fill="'+(on?'#0c2230':'#0a151c')+'" stroke="'+(on?'#22d3ee':'#1b3644')+'" stroke-width="'+(on?2:1.2)+'"'+(on?' filter="url(#glow)"':'')+'/>';
+    a+='<text x="'+(ax+aw/2)+'" y="'+(ay+32)+'" font-size="13.5" font-weight="700" fill="'+(on?'#67e8f9':'#7fa0b3')+'" text-anchor="middle">'+ADAPTERS[i].pkg+'</text>';
+    a+='<text x="'+(ax+aw/2)+'" y="'+(ay+54)+'" font-size="12" fill="'+(on?'#facc15':'#4b6b7d')+'" text-anchor="middle">'+ADAPTERS[i].res+'</text>';
+    ax+=aw+gap;
+  }
+  document.getElementById('adaptersG').innerHTML=a;
+  var A=ADAPTERS[adaActive];
+  document.getElementById('facTxt').textContent=A.fac;
+  document.getElementById('disTxt').textContent=A.dis;
+  document.getElementById('resTxt').textContent=A.res;
+  document.getElementById('pkgTxt').textContent=A.pkg;
+
+  // token along the flow
+  var tx=lerp(150,1090,(p*2)%1);
+  document.getElementById('tokens').innerHTML=tok(tx,225,(((p*2)%1)<0.72)?'#67e8f9':'#4ade80');
+}
+var m=location.hash.match(/f=(\d+)/);
+render(m?parseInt(m[1]):0);
+</script>
+</body></html>

@@ -14,7 +14,8 @@ tenant forever.
 npm install @refpool/pg pg
 ```
 
-`pg` is an **optional** peer dependency (`^8.0.0`).
+`pg` (`^8.0.0`) is a **required** peer dependency — this package statically
+imports it, so you must install `pg` alongside `@refpool/pg`.
 
 ## Usage
 

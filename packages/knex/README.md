@@ -13,7 +13,8 @@ automatically.
 npm install @refpool/knex knex
 ```
 
-`knex` is an **optional** peer dependency (`^3.0.0`).
+`knex` (`^3.0.0`) is a **required** peer dependency — this package statically
+imports it, so you must install `knex` alongside `@refpool/knex`.
 
 ## Usage
 

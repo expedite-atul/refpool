@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "NestJS integration for refpool: dynamic module, injectable service, multi-tenant connection middleware, and a connection health controller.",
   "license": "MIT",
-  "author": "Atul Singh <atulsingh.harsh@gmail.com>",
+  "author": "Atul Singh <atulsingh.harsh@gmail.com> (https://atulsingh.io)",
   "type": "module",
   "sideEffects": false,
   "keywords": [
@@ -17,12 +17,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atulsingh-harsh/refpool.git",
+    "url": "git+https://github.com/expedite-atul/refpool.git",
     "directory": "packages/nestjs"
   },
-  "homepage": "https://github.com/atulsingh-harsh/refpool/tree/main/packages/nestjs#readme",
+  "homepage": "https://github.com/expedite-atul/refpool/tree/main/packages/nestjs#readme",
   "bugs": {
-    "url": "https://github.com/atulsingh-harsh/refpool/issues"
+    "url": "https://github.com/expedite-atul/refpool/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -66,5 +66,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
