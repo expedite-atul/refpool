@@ -35,4 +35,23 @@ describe('TypedEventEmitter', () => {
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).toHaveBeenCalledTimes(1);
   });
+
+  it('isolates a throwing listener and routes the error to onError', () => {
+    const errors: unknown[] = [];
+    const emitter = new TypedEventEmitter((error) => errors.push(error));
+    const after = vi.fn();
+
+    emitter.on('create', () => {
+      throw new Error('boom');
+    });
+    emitter.on('create', after);
+
+    // emit must not propagate the listener's throw…
+    expect(() => emitter.emit({ type: 'create', key: 'k', timestamp: 1 })).not.toThrow();
+    // …the surviving listener still runs…
+    expect(after).toHaveBeenCalledTimes(1);
+    // …and the failure is surfaced to the sink.
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe('boom');
+  });
 });

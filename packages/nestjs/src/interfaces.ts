@@ -15,6 +15,11 @@ export interface TenantMiddlewareOptions {
   onMissing?: MissingTenantBehavior;
   /** Property on the request used to attach the acquired resource. Default `tenantResource`. */
   requestProperty?: string;
+  /**
+   * Routes to auto-apply {@link TenantConnectionMiddleware} to. Setting this
+   * opts into wiring; omit it (or pass `applyMiddleware`) to fall back to `'*'`.
+   */
+  routes?: string | string[];
 }
 
 export interface RefPoolModuleOptions<T = unknown> extends PoolOptions<T> {
@@ -24,6 +29,12 @@ export interface RefPoolModuleOptions<T = unknown> extends PoolOptions<T> {
   warmOnInit?: boolean;
   /** Defaults for {@link TenantConnectionMiddleware}. */
   middleware?: TenantMiddlewareOptions;
+  /**
+   * Auto-apply {@link TenantConnectionMiddleware} for the whole app. Defaults to
+   * `true` when `middleware.routes` is set, otherwise `false`. When enabled
+   * without explicit `routes`, the middleware is applied to `'*'`.
+   */
+  applyMiddleware?: boolean;
 }
 
 export interface RefPoolModuleAsyncOptions<T = unknown>

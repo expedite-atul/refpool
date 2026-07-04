@@ -1,5 +1,6 @@
 import { TypedEventEmitter } from './events.js';
 import { noopBreaker } from './breakers.js';
+import { AcquireTimeoutError, PoolClosedError, PoolExhaustedError } from './errors.js';
 import {
   noopLogger,
   type AcquireHandle,
@@ -18,19 +19,34 @@ interface Entry<T> {
   resource: T;
   refCount: number;
   lastReleasedAt: number;
-  /** Monotonic release order, used for deterministic LRU selection. */
-  lastReleasedSeq: number;
   /** Captured by a drain; disposed the moment refcount returns to 0. */
   condemned: boolean;
   disposed: boolean;
   disposing?: Promise<void>;
   disposeWaiters: Array<() => void>;
+  /**
+   * Intrusive doubly-linked "idle list" membership. Invariant:
+   * `inIdle === true` ⟺ the entry is in `entries` and `refCount === 0`.
+   * `prev`/`next` are only meaningful while `inIdle` is true. The list runs
+   * head → tail in ascending release-recency, so the head is the LRU victim.
+   */
+  inIdle: boolean;
+  prev?: Entry<T>;
+  next?: Entry<T>;
 }
 
 interface MutexCell {
   tail: Promise<unknown>;
   pending: number;
   lastUsed: number;
+}
+
+/** A parked `acquire()` waiting for a capacity slot to open up. */
+interface CapacityWaiter {
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer?: ReturnType<typeof setTimeout>;
+  settled: boolean;
 }
 
 type Counters = {
@@ -51,6 +67,10 @@ type Timer = ReturnType<typeof setInterval>;
  * reference; this is the canonical API (it stays correct across eviction and
  * orphan handoff). `release(key)` is a convenience that drops one reference
  * from the live (or orphaned) resource for a key.
+ *
+ * The acquire / evict / stats hot paths are O(1) in the number of live keys:
+ * eviction pops the head of an intrusive idle list, the TTL sweep walks only
+ * the expired prefix of that list, and `getStats()` reads maintained counters.
  */
 export class RefCountedLruPool<T> {
   private readonly entries = new Map<string, Entry<T>>();
@@ -58,10 +78,18 @@ export class RefCountedLruPool<T> {
   private readonly mutexes = new Map<string, MutexCell>();
   private readonly pending = new Map<string, number>();
   private readonly breakers = new Map<string, CircuitBreaker>();
-  private readonly emitter = new TypedEventEmitter();
+  private readonly breakerUnsubs = new Map<string, () => void>();
+  private readonly emitter = new TypedEventEmitter((error, type) =>
+    this.logger.error('refpool: event listener threw', {
+      type,
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
 
   private readonly logger: Logger;
   private readonly max: number;
+  private readonly acquireTimeoutMs: number;
+  private readonly maxWaiters?: number;
   private readonly idleTtlMs?: number;
   private readonly mutexGcMs?: number;
   private readonly statsIntervalMs?: number;
@@ -73,8 +101,18 @@ export class RefCountedLruPool<T> {
   private mutexTimer?: Timer;
   private statsTimer?: Timer;
   private started = false;
-  private waiting = 0;
-  private seq = 0;
+  private closed = false;
+
+  // Capacity accounting: `reserved` counts creates that passed the capacity gate
+  // but haven't inserted their entry yet, so `entries.size + reserved` never
+  // exceeds `max`. Waiters park here until a slot frees (release/dispose/sweep).
+  private reserved = 0;
+  private readonly capacityWaiters: CapacityWaiter[] = [];
+
+  // Intrusive idle-list endpoints + count (O(1) LRU / stats).
+  private idleHead?: Entry<T>;
+  private idleTail?: Entry<T>;
+  private idleCount = 0;
 
   private readonly counters: Counters = {
     created: 0,
@@ -88,6 +126,8 @@ export class RefCountedLruPool<T> {
   constructor(private readonly options: PoolOptions<T>) {
     this.logger = options.logger ?? noopLogger;
     this.max = options.max;
+    this.acquireTimeoutMs = options.acquireTimeoutMs ?? 30_000;
+    this.maxWaiters = options.maxWaiters;
     this.idleTtlMs = options.idleTtlMs;
     this.mutexGcMs = options.mutexGcMs;
     this.statsIntervalMs = options.statsIntervalMs;
@@ -118,19 +158,14 @@ export class RefCountedLruPool<T> {
   async acquire(key: string): Promise<AcquireHandle<T>> {
     this.incPending(key);
     try {
+      // Fast path: an already-live shared entry never needs a slot or the mutex.
       const fast = this.entries.get(key);
       if (fast && !fast.disposed && fast.refCount > 0) {
         this.counters.hits += 1;
         return this.checkout(fast);
       }
 
-      this.waiting += 1;
-      let entry: Entry<T>;
-      try {
-        entry = await this.runExclusive(key, () => this.obtain(key));
-      } finally {
-        this.waiting -= 1;
-      }
+      const entry = await this.runExclusive(key, () => this.obtain(key));
       return this.checkout(entry);
     } finally {
       this.decPending(key);
@@ -143,19 +178,16 @@ export class RefCountedLruPool<T> {
   }
 
   getStats(): PoolStats {
-    let idle = 0;
-    let inUse = 0;
-    for (const entry of this.entries.values()) {
-      if (entry.refCount > 0) inUse += 1;
-      else idle += 1;
-    }
-    inUse += this.orphans.size;
+    // O(1): `idleCount` is maintained on every refcount transition, so idle and
+    // inUse never require a scan of the live map.
+    const idle = this.idleCount;
+    const inUse = this.entries.size - idle + this.orphans.size;
     return {
       keys: this.entries.size,
       live: this.entries.size + this.orphans.size,
       idle,
       inUse,
-      waiters: this.waiting,
+      waiters: this.capacityWaiters.length,
       created: this.counters.created,
       disposed: this.counters.disposed,
       evicted: this.counters.evicted,
@@ -169,24 +201,44 @@ export class RefCountedLruPool<T> {
     if (!strategy) return;
     const keys = typeof strategy.keys === 'function' ? await strategy.keys() : strategy.keys;
     const perKey = Math.max(1, strategy.perKey ?? 1);
-    await Promise.all(
-      keys.map(async (key) => {
-        const handles = await Promise.all(
-          Array.from({ length: perKey }, () => this.acquire(key)),
-        );
-        for (const handle of handles) handle.release();
-      }),
-    );
+    // Bound the fan-out so a large key set can't schedule thousands of acquires
+    // at once (which would also stampede backpressure); one failing key is
+    // isolated and never leaves half-acquired handles unreleased.
+    const concurrency = Math.max(1, strategy.concurrency ?? 8);
+    const queue = [...keys];
+    const worker = async (): Promise<void> => {
+      for (let key = queue.shift(); key !== undefined; key = queue.shift()) {
+        await this.warmKey(key, perKey);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+  }
+
+  private async warmKey(key: string, perKey: number): Promise<void> {
+    const handles: Array<AcquireHandle<T>> = [];
+    try {
+      for (let i = 0; i < perKey; i += 1) handles.push(await this.acquire(key));
+    } catch (error) {
+      this.logger.error('refpool: warm failed', {
+        key,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      // Release whatever we managed to acquire, even on a mid-way failure.
+      for (const handle of handles) handle.release();
+    }
   }
 
   start(): void {
+    // Re-open a pool that was previously stopped/drained.
+    this.closed = false;
     if (this.started) return;
     this.started = true;
     if (this.idleTtlMs && this.idleTtlMs > 0) {
       this.sweepTimer = this.makeInterval(() => this.sweep(), this.idleTtlMs);
     }
     if (this.mutexGcMs && this.mutexGcMs > 0) {
-      this.mutexTimer = this.makeInterval(() => this.gcMutexes(), this.mutexGcMs);
+      this.mutexTimer = this.makeInterval(() => this.gcKeyState(), this.mutexGcMs);
     }
     if (this.statsIntervalMs && this.statsIntervalMs > 0) {
       this.statsTimer = this.makeInterval(() => this.emitStats(), this.statsIntervalMs);
@@ -194,11 +246,15 @@ export class RefCountedLruPool<T> {
   }
 
   async stop(): Promise<void> {
+    this.setClosed();
     this.stopTimers();
     await this.drain();
   }
 
   async drain(): Promise<void> {
+    // Close first: reject parked waiters and stop new keys from being created
+    // (so an acquire racing the drain can't leak a resource past shutdown).
+    this.setClosed();
     this.stopTimers();
     this.emit({ type: 'drain-start', timestamp: this.now() });
     const waits: Array<Promise<void>> = [];
@@ -206,6 +262,7 @@ export class RefCountedLruPool<T> {
     for (const entry of [...this.entries.values()]) {
       this.entries.delete(entry.key);
       if (entry.refCount === 0) {
+        this.idleRemove(entry);
         waits.push(this.dispose(entry));
       } else {
         entry.condemned = true;
@@ -221,11 +278,17 @@ export class RefCountedLruPool<T> {
       waits.push(this.awaitDisposal(entry));
     }
 
+    // Every idle entry has been removed above; reset the list defensively.
+    this.idleHead = undefined;
+    this.idleTail = undefined;
+    this.idleCount = 0;
+
     await Promise.all(waits);
     this.emit({ type: 'drain-complete', timestamp: this.now() });
   }
 
   private checkout(entry: Entry<T>): AcquireHandle<T> {
+    if (entry.refCount === 0) this.idleRemove(entry);
     entry.refCount += 1;
     this.emit({ type: 'acquire', key: entry.key, refCount: entry.refCount, timestamp: this.now() });
     let released = false;
@@ -239,19 +302,30 @@ export class RefCountedLruPool<T> {
     };
   }
 
+  /**
+   * Drop one reference. Cross-holder hazard: `release(key)` (unlike a handle's
+   * `release()`) can't tell whose reference it drops, so calling it more times
+   * than you hold handles would corrupt the count — always prefer the handle's
+   * `release()`. This guard makes an already-idle (`refCount === 0`) release a
+   * true no-op: no spurious event, no `lastReleasedAt` re-stamp, no LRU reorder,
+   * and the count can never fall below zero.
+   */
   private releaseEntry(entry: Entry<T>): void {
     if (entry.disposed) return;
-    if (entry.refCount > 0) entry.refCount -= 1;
+    if (entry.refCount === 0) return;
+    entry.refCount -= 1;
     this.emit({ type: 'release', key: entry.key, refCount: entry.refCount, timestamp: this.now() });
     if (entry.refCount !== 0) return;
 
+    // Real 1→0 edge only.
     entry.lastReleasedAt = this.now();
-    entry.lastReleasedSeq = (this.seq += 1);
     if (entry.condemned || this.orphans.get(entry.key) === entry) {
       this.removeEntry(entry);
       void this.dispose(entry);
     } else {
-      this.enforceMax();
+      this.idleAppend(entry);
+      // Now evictable: a waiter blocked for capacity can reclaim this slot.
+      this.wakeCapacityWaiter();
     }
   }
 
@@ -275,6 +349,10 @@ export class RefCountedLruPool<T> {
 
     const orphan = this.orphans.get(key);
     if (orphan && !orphan.disposed) {
+      // A key is only ever orphaned by `drain()`, which owns its disposal.
+      // Resurrection lets an in-flight caller keep using the resource, but the
+      // condemnation is intentionally preserved: once the last holder releases,
+      // the resource is disposed so the awaiting drain can complete.
       this.orphans.delete(key);
       this.entries.set(key, orphan);
       this.counters.hits += 1;
@@ -282,61 +360,168 @@ export class RefCountedLruPool<T> {
       return orphan;
     }
 
+    // A miss for a new key: refuse once closed (no leaks past shutdown) and
+    // reserve a capacity slot (blocking for one if saturated) before creating.
+    if (this.closed) throw new PoolClosedError();
     this.counters.misses += 1;
-    const breaker = this.resolveBreaker(key);
-    const resource = await breaker.exec(() => this.options.factory(key));
+    await this.acquireSlot(key);
+
+    let resource: T;
+    try {
+      const breaker = this.resolveBreaker(key);
+      resource = await breaker.exec(() => this.options.factory(key));
+    } catch (error) {
+      this.releaseReservation();
+      throw error;
+    }
+
+    // The pool may have been drained while the factory was in flight; dispose
+    // the fresh resource rather than inserting (and leaking) it.
+    if (this.closed) {
+      this.releaseReservation();
+      await this.disposeOrphaned(resource, key);
+      throw new PoolClosedError();
+    }
+
     const entry: Entry<T> = {
       key,
       resource,
       refCount: 0,
       lastReleasedAt: this.now(),
-      lastReleasedSeq: 0,
       condemned: false,
       disposed: false,
       disposeWaiters: [],
+      inIdle: false,
     };
     this.entries.set(key, entry);
+    // Reservation is now backed by a real entry; slot count is unchanged.
+    this.reserved -= 1;
+    this.idleAppend(entry);
     this.counters.created += 1;
     this.emit({ type: 'create', key, timestamp: this.now() });
-    this.enforceMax();
     return entry;
   }
 
-  private enforceMax(): void {
+  /**
+   * Reserve one capacity slot for a new key. Fast when under `max`; otherwise
+   * evicts the LRU idle victim to make room, and if none is evictable (every
+   * live resource is in use) parks until a release/dispose/sweep frees a slot —
+   * bounded by `maxWaiters` (queue length) and `acquireTimeoutMs` (wait time).
+   * `max <= 0` disables the bound entirely. Runs under the per-key mutex, so a
+   * parked waiter only blocks its own key; other keys' releases still proceed.
+   */
+  private async acquireSlot(key: string): Promise<void> {
     if (this.max <= 0) return;
-    while (this.entries.size > this.max) {
-      const victim = this.pickLruIdle();
-      if (!victim) break;
-      this.entries.delete(victim.key);
-      this.counters.evicted += 1;
-      this.emit({ type: 'evict', key: victim.key, reason: 'lru', timestamp: this.now() });
-      void this.dispose(victim);
+    for (;;) {
+      if (this.closed) throw new PoolClosedError();
+      if (this.entries.size + this.reserved < this.max) {
+        this.reserved += 1;
+        return;
+      }
+      const victim = this.takeLruIdle();
+      if (victim) {
+        this.counters.evicted += 1;
+        this.emit({ type: 'evict', key: victim.key, reason: 'lru', timestamp: this.now() });
+        void this.dispose(victim);
+        this.reserved += 1;
+        return;
+      }
+      await this.waitForCapacity();
     }
   }
 
-  private pickLruIdle(): Entry<T> | undefined {
-    let victim: Entry<T> | undefined;
-    for (const entry of this.entries.values()) {
-      if (entry.refCount !== 0 || entry.condemned || entry.disposed) continue;
-      if (this.isPending(entry.key)) continue;
-      if (!victim || entry.lastReleasedSeq < victim.lastReleasedSeq) victim = entry;
+  /** Release a reservation that never became an entry, freeing the slot. */
+  private releaseReservation(): void {
+    this.reserved -= 1;
+    this.wakeCapacityWaiter();
+  }
+
+  private async disposeOrphaned(resource: T, key: string): Promise<void> {
+    try {
+      await this.options.dispose?.(resource, key);
+    } catch (error) {
+      this.logger.error('refpool: dispose failed', {
+        key,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    return victim;
+  }
+
+  /** Park until a capacity slot frees. Enforces `maxWaiters` and `acquireTimeoutMs`. */
+  private waitForCapacity(): Promise<void> {
+    if (this.closed) return Promise.reject(new PoolClosedError());
+    if (this.maxWaiters !== undefined && this.capacityWaiters.length >= this.maxWaiters) {
+      return Promise.reject(new PoolExhaustedError());
+    }
+    return new Promise<void>((resolve, reject) => {
+      const waiter: CapacityWaiter = { resolve, reject, settled: false };
+      if (Number.isFinite(this.acquireTimeoutMs) && this.acquireTimeoutMs >= 0) {
+        waiter.timer = setTimeout(() => {
+          this.settleWaiter(waiter, () => reject(new AcquireTimeoutError()));
+        }, this.acquireTimeoutMs);
+        (waiter.timer as { unref?: () => void }).unref?.();
+      }
+      this.capacityWaiters.push(waiter);
+    });
+  }
+
+  /** Wake the oldest waiter (FIFO) so it can retry the slot reservation. */
+  private wakeCapacityWaiter(): void {
+    const waiter = this.capacityWaiters[0];
+    if (!waiter) return;
+    this.capacityWaiters.shift();
+    this.settleWaiter(waiter, waiter.resolve);
+  }
+
+  private settleWaiter(waiter: CapacityWaiter, finish: () => void): void {
+    if (waiter.settled) return;
+    waiter.settled = true;
+    if (waiter.timer) clearTimeout(waiter.timer);
+    const index = this.capacityWaiters.indexOf(waiter);
+    if (index !== -1) this.capacityWaiters.splice(index, 1);
+    finish();
+  }
+
+  /**
+   * Detach and return the least-recently-released evictable idle entry, skipping
+   * any idle key with an in-flight acquire (never yank a resource a waiter is
+   * about to reuse). Amortised O(1): pending idle entries are transient and rare.
+   */
+  private takeLruIdle(): Entry<T> | undefined {
+    let node = this.idleHead;
+    while (node) {
+      const next = node.next;
+      if (!this.isPending(node.key)) {
+        this.idleRemove(node);
+        this.entries.delete(node.key);
+        return node;
+      }
+      node = next;
+    }
+    return undefined;
   }
 
   private sweep(): void {
     if (!this.idleTtlMs) return;
     const cutoff = this.now() - this.idleTtlMs;
     let swept = 0;
-    for (const entry of [...this.entries.values()]) {
-      if (entry.refCount !== 0 || entry.condemned || entry.disposed) continue;
-      if (this.isPending(entry.key)) continue;
-      if (entry.lastReleasedAt > cutoff) continue;
-      this.entries.delete(entry.key);
-      this.counters.evicted += 1;
-      this.emit({ type: 'evict', key: entry.key, reason: 'ttl', timestamp: this.now() });
-      void this.dispose(entry);
-      swept += 1;
+    // The idle list is release-ordered, so the first entry newer than the cutoff
+    // ends the walk — only the expired prefix is ever visited (O(expired)).
+    let node = this.idleHead;
+    while (node) {
+      const next = node.next;
+      if (node.lastReleasedAt > cutoff) break;
+      if (!this.isPending(node.key)) {
+        this.idleRemove(node);
+        this.entries.delete(node.key);
+        this.counters.evicted += 1;
+        this.emit({ type: 'evict', key: node.key, reason: 'ttl', timestamp: this.now() });
+        void this.dispose(node);
+        // Freed a slot — let a parked acquire create in the vacated capacity.
+        this.wakeCapacityWaiter();
+        swept += 1;
+      }
+      node = next;
     }
     if (swept > 0) this.emit({ type: 'idle-sweep', swept, timestamp: this.now() });
   }
@@ -355,10 +540,15 @@ export class RefCountedLruPool<T> {
       } finally {
         entry.disposed = true;
         this.counters.disposed += 1;
-        this.emit({ type: 'dispose', key: entry.key, timestamp: this.now() });
+        // A disposed key with no remaining presence no longer needs its per-key
+        // breaker; drop it eagerly (correctness doesn't wait for `mutexGcMs`).
+        this.dropBreaker(entry.key);
+        // Resolve disposal waiters BEFORE emitting so a listener can never
+        // wedge a `drain()` awaiting this resource (emit also isolates throws).
         const waiters = entry.disposeWaiters;
         entry.disposeWaiters = [];
         for (const resolve of waiters) resolve();
+        this.emit({ type: 'dispose', key: entry.key, timestamp: this.now() });
       }
     })();
     return entry.disposing;
@@ -372,9 +562,40 @@ export class RefCountedLruPool<T> {
   }
 
   private removeEntry(entry: Entry<T>): void {
+    this.idleRemove(entry);
     if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key);
     if (this.orphans.get(entry.key) === entry) this.orphans.delete(entry.key);
   }
+
+  // --- intrusive idle list ---------------------------------------------------
+
+  /** Append as the most-recently-released (tail). No-op if already listed. */
+  private idleAppend(entry: Entry<T>): void {
+    if (entry.inIdle) return;
+    entry.inIdle = true;
+    entry.prev = this.idleTail;
+    entry.next = undefined;
+    if (this.idleTail) this.idleTail.next = entry;
+    else this.idleHead = entry;
+    this.idleTail = entry;
+    this.idleCount += 1;
+  }
+
+  /** Unlink from the idle list. No-op if not listed. */
+  private idleRemove(entry: Entry<T>): void {
+    if (!entry.inIdle) return;
+    entry.inIdle = false;
+    const { prev, next } = entry;
+    if (prev) prev.next = next;
+    else this.idleHead = next;
+    if (next) next.prev = prev;
+    else this.idleTail = prev;
+    entry.prev = undefined;
+    entry.next = undefined;
+    this.idleCount -= 1;
+  }
+
+  // ---------------------------------------------------------------------------
 
   private resolveBreaker(key: string): CircuitBreaker {
     if (this.breakerFactory) {
@@ -382,21 +603,37 @@ export class RefCountedLruPool<T> {
       if (!breaker) {
         breaker = this.breakerFactory();
         this.breakers.set(key, breaker);
-        this.wireBreaker(breaker, key);
+        const unsub = this.wireBreaker(breaker, key);
+        if (unsub) this.breakerUnsubs.set(key, unsub);
       }
       return breaker;
     }
     return this.sharedBreaker ?? noopBreaker;
   }
 
-  private wireBreaker(breaker: CircuitBreaker, key: string | undefined): void {
-    breaker.onStateChange?.((state) => {
+  private wireBreaker(breaker: CircuitBreaker, key: string | undefined): (() => void) | undefined {
+    return breaker.onStateChange?.((state) => {
       this.counters.breaker[state] += 1;
       const timestamp = this.now();
       if (state === 'open') this.emit({ type: 'breaker-open', key, timestamp });
       else if (state === 'closed') this.emit({ type: 'breaker-close', key, timestamp });
       else this.emit({ type: 'breaker-half-open', key, timestamp });
     });
+  }
+
+  /**
+   * Drop a per-key breaker once its key has no live/orphan/pending presence, but
+   * only while it's `closed` — an actively-protecting (open / half-open) breaker
+   * is preserved so an incident isn't forgotten mid-flight.
+   */
+  private dropBreaker(key: string): void {
+    if (!this.breakerFactory) return;
+    const breaker = this.breakers.get(key);
+    if (!breaker || breaker.state !== 'closed') return;
+    if (this.entries.has(key) || this.orphans.has(key) || this.isPending(key)) return;
+    this.breakers.delete(key);
+    this.breakerUnsubs.get(key)?.();
+    this.breakerUnsubs.delete(key);
   }
 
   private runExclusive<R>(key: string, fn: () => Promise<R>): Promise<R> {
@@ -415,16 +652,31 @@ export class RefCountedLruPool<T> {
     const settled = (): void => {
       cell.pending -= 1;
       cell.lastUsed = this.now();
+      // Drop the cell the moment nothing is queued on it; serialization only
+      // matters while `pending > 0`, so this can't lose ordering, and it keeps
+      // the mutex map bounded without depending on the optional `mutexGcMs` GC.
+      if (cell.pending === 0 && this.mutexes.get(key) === cell) this.mutexes.delete(key);
     };
     void result.then(settled, settled);
     return result;
   }
 
-  private gcMutexes(): void {
-    if (!this.mutexGcMs) return;
-    const cutoff = this.now() - this.mutexGcMs;
-    for (const [key, cell] of [...this.mutexes]) {
-      if (cell.pending === 0 && cell.lastUsed <= cutoff) this.mutexes.delete(key);
+  /**
+   * Periodic key-state GC (armed by `mutexGcMs`): drop idle per-key mutex cells,
+   * and prune per-key breakers for keys with no live/orphan/pending presence —
+   * but only while the breaker is `closed`, so an actively-protecting (open /
+   * half-open) breaker is never discarded mid-incident.
+   */
+  private gcKeyState(): void {
+    const now = this.now();
+    if (this.mutexGcMs) {
+      const cutoff = now - this.mutexGcMs;
+      for (const [key, cell] of [...this.mutexes]) {
+        if (cell.pending === 0 && cell.lastUsed <= cutoff) this.mutexes.delete(key);
+      }
+    }
+    if (this.breakerFactory && this.breakers.size > 0) {
+      for (const key of [...this.breakers.keys()]) this.dropBreaker(key);
     }
   }
 
@@ -438,6 +690,17 @@ export class RefCountedLruPool<T> {
     const timer = setInterval(fn, ms);
     (timer as { unref?: () => void }).unref?.();
     return timer;
+  }
+
+  /** Mark the pool closed and reject every parked capacity waiter. */
+  private setClosed(): void {
+    this.closed = true;
+    while (this.capacityWaiters.length > 0) {
+      const waiter = this.capacityWaiters[0];
+      if (!waiter) break;
+      this.capacityWaiters.shift();
+      this.settleWaiter(waiter, () => waiter.reject(new PoolClosedError()));
+    }
   }
 
   private stopTimers(): void {

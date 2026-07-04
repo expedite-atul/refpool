@@ -7,6 +7,7 @@ export {
   type InMemoryCircuitBreakerOptions,
 } from './breakers.js';
 export { noopLogger } from './types.js';
+export { PoolClosedError, AcquireTimeoutError, PoolExhaustedError } from './errors.js';
 export type {
   AcquireHandle,
   AcquireEvent,

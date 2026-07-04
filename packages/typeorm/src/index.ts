@@ -20,7 +20,12 @@ export function createTypeOrmPool(options: TypeOrmPoolOptions): RefCountedLruPoo
     ...rest,
     factory: async (key) => {
       const dataSource = new DataSource(await config(key));
-      await dataSource.initialize();
+      try {
+        await dataSource.initialize();
+      } catch (error) {
+        await dataSource.destroy().catch(() => {});
+        throw error;
+      }
       return dataSource;
     },
     dispose: async (dataSource) => {

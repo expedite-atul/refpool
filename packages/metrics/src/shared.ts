@@ -19,10 +19,13 @@ export type MetricsSource<T = unknown> = Pick<
   'getStats' | 'on'
 >;
 
-/** Saturation as `live / max`, clamped so a non-positive `max` yields `0`. */
+/**
+ * Saturation as `live / max`, clamped to `[0, 1]`: a non-positive `max` yields
+ * `0`, and transient overshoot (held orphans above `max`) is capped at `1`.
+ */
 export function saturation(stats: PoolStats, max: number | undefined): number {
   if (!max || max <= 0) return 0;
-  return stats.live / max;
+  return Math.min(1, stats.live / max);
 }
 
 /** Builds a typed map of `name -> fully-prefixed metric name`. */

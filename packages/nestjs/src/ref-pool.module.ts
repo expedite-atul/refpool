@@ -1,5 +1,10 @@
-import { Module } from '@nestjs/common';
-import type { DynamicModule, Provider } from '@nestjs/common';
+import { Inject, Module } from '@nestjs/common';
+import type {
+  DynamicModule,
+  MiddlewareConsumer,
+  NestModule,
+  Provider,
+} from '@nestjs/common';
 import { ConnectionHealthController } from './health.controller.js';
 import { RefPoolService } from './ref-pool.service.js';
 import { TenantConnectionMiddleware } from './tenant-connection.middleware.js';
@@ -19,7 +24,24 @@ const EXPORTS = [
 ];
 
 @Module({})
-export class RefPoolModule {
+export class RefPoolModule implements NestModule {
+  constructor(
+    @Inject(REFPOOL_OPTIONS) private readonly options: RefPoolModuleOptions,
+  ) {}
+
+  /**
+   * Auto-wires {@link TenantConnectionMiddleware} when the drop-in multi-tenant
+   * path is opted into via `applyMiddleware` or `middleware.routes`. Defaults to
+   * `'*'` (all routes) when enabled without explicit routes.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    const routes = this.options.middleware?.routes;
+    const shouldApply = this.options.applyMiddleware ?? routes !== undefined;
+    if (!shouldApply) return;
+    const forRoutes = routes === undefined ? ['*'] : Array.isArray(routes) ? routes : [routes];
+    consumer.apply(TenantConnectionMiddleware).forRoutes(...forRoutes);
+  }
+
   static forRoot<T = unknown>(options: RefPoolModuleOptions<T>): DynamicModule {
     const providers: Provider[] = [
       { provide: REFPOOL_OPTIONS, useValue: options },

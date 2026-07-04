@@ -6,5 +6,6 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
+  shims: true,
   external: ['prom-client', '@opentelemetry/api', '@refpool/core'],
 });

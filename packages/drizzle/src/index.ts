@@ -31,9 +31,15 @@ export function createDrizzlePool<TSchema extends Record<string, unknown> = Reco
     ...rest,
     factory: async (key) => {
       const client = new Pool(await config(key));
-      const db = (
-        schema ? drizzle(client, { schema }) : drizzle(client)
-      ) as NodePgDatabase<TSchema>;
+      let db: NodePgDatabase<TSchema>;
+      try {
+        db = (
+          schema ? drizzle(client, { schema }) : drizzle(client)
+        ) as NodePgDatabase<TSchema>;
+      } catch (error) {
+        await client.end().catch(() => {});
+        throw error;
+      }
       clients.set(db, client);
       return db;
     },

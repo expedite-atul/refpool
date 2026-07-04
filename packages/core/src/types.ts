@@ -29,6 +29,8 @@ export interface CircuitBreaker {
 export interface PrewarmStrategy<T = unknown> {
   keys: string[] | (() => string[] | Promise<string[]>);
   perKey?: number;
+  /** Bound on keys warmed in parallel (defaults to a small fan-out, min 1). */
+  concurrency?: number;
   /** Phantom marker so the strategy can be parameterized by the pooled type. */
   readonly __resource?: T;
 }
@@ -115,7 +117,7 @@ export interface PoolStats {
   idle: number;
   /** Live resources with at least one holder (plus orphans, which are always held). */
   inUse: number;
-  /** Acquire calls currently blocked on resource creation. */
+  /** Acquires currently blocked waiting for capacity (a slot at/under `max`). */
   waiters: number;
   created: number;
   disposed: number;
@@ -131,8 +133,23 @@ export interface PoolOptions<T> {
   factory: (key: string) => Promise<T>;
   /** Tears the resource down. Invoked at most once per resource. */
   dispose?: (resource: T, key: string) => Promise<void> | void;
-  /** Upper bound on live keyed resources. Idle resources are evicted to honor it. */
+  /**
+   * Hard upper bound on live keyed resources. When all `max` live resources are
+   * in use, a `acquire()` for a new key blocks (up to `acquireTimeoutMs`) for
+   * capacity rather than exceeding the ceiling. Idle resources are evicted (LRU)
+   * to make room. `max <= 0` disables the bound (unbounded, no backpressure).
+   */
   max: number;
+  /**
+   * Max time an `acquire()` may block waiting for capacity before rejecting with
+   * `AcquireTimeoutError`. Defaults to 30_000ms; pass `Infinity` to wait forever.
+   */
+  acquireTimeoutMs?: number;
+  /**
+   * Cap on the number of acquires that may queue for capacity at once. Once full,
+   * further acquires reject immediately with `PoolExhaustedError`. Unbounded by default.
+   */
+  maxWaiters?: number;
   /** Reclaim idle resources untouched for at least this long. */
   idleTtlMs?: number;
   /** Drop unused per-key mutex cells older than this to bound memory. */

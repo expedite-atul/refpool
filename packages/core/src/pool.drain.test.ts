@@ -25,4 +25,22 @@ describe('shutdown drain', () => {
     expect(pool.getStats().live).toBe(0);
     expect(events).toEqual(['start', 'complete']);
   });
+
+  it('completes drain even when a dispose listener throws', async () => {
+    const { pool, disposed } = makePool({ max: 10 });
+    // A misbehaving listener must never be able to wedge shutdown.
+    pool.on('dispose', () => {
+      throw new Error('listener boom');
+    });
+
+    (await pool.acquire('idle')).release();
+    const held = await pool.acquire('held');
+
+    const draining = pool.drain();
+    held.release();
+
+    await expect(draining).resolves.toBeUndefined();
+    expect(disposed.sort()).toEqual(['held', 'idle']);
+    expect(pool.getStats().live).toBe(0);
+  });
 });

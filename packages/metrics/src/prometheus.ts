@@ -1,4 +1,5 @@
-import { Counter, Gauge, Registry } from 'prom-client';
+import { createRequire } from 'node:module';
+import type { Counter, Gauge, Registry } from 'prom-client';
 import type { BreakerState, PoolStats } from '@refpool/core';
 import {
   BREAKER_STATE_CODE,
@@ -6,6 +7,27 @@ import {
   saturation,
   type MetricsSource,
 } from './shared.js';
+
+type PromClientModule = typeof import('prom-client');
+
+let promClient: PromClientModule | undefined;
+
+/**
+ * Load the optional `prom-client` peer lazily, so importing this module never
+ * hard-requires it at evaluation time. Throws a branded error when it is absent
+ * instead of surfacing a raw module-not-found.
+ */
+function loadPromClient(): PromClientModule {
+  if (promClient) return promClient;
+  try {
+    promClient = createRequire(import.meta.url)('prom-client') as PromClientModule;
+  } catch {
+    throw new Error(
+      '[@refpool/metrics] install prom-client to use the Prometheus exporter (e.g. `npm install prom-client`).',
+    );
+  }
+  return promClient;
+}
 
 export interface PrometheusBindingOptions {
   /** Registry to register on. Defaults to a fresh `Registry`. */
@@ -45,6 +67,7 @@ export function bindPrometheus(
   pool: MetricsSource,
   options: PrometheusBindingOptions = {},
 ): PrometheusBinding {
+  const { Counter, Gauge, Registry } = loadPromClient();
   const registry = options.registry ?? new Registry();
   const prefix = options.prefix ?? DEFAULT_PREFIX;
   const labels = options.labels ?? {};

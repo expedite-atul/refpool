@@ -32,7 +32,12 @@ export function createPrismaPool<TClient extends PrismaClientLike>(
     ...rest,
     factory: async (key) => {
       const instance = await client(key);
-      await instance.$connect();
+      try {
+        await instance.$connect();
+      } catch (error) {
+        await instance.$disconnect().catch(() => {});
+        throw error;
+      }
       return instance;
     },
     dispose: async (instance) => {

@@ -48,3 +48,66 @@ describe('pool surfaces breaker events', () => {
     expect(pool.getStats().breaker.open).toBe(1);
   });
 });
+
+describe('per-key breaker map is self-bounding', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('prunes a closed per-key breaker once its key churns away', async () => {
+    let breakerCount = 0;
+    const pool = new RefCountedLruPool<string>({
+      max: 1,
+      mutexGcMs: 1000,
+      breaker: () => {
+        breakerCount += 1;
+        return new InMemoryCircuitBreaker();
+      },
+      factory: async (key) => key,
+    });
+    pool.start();
+
+    (await pool.acquire('a')).release(); // per-key breaker 'a' created
+    (await pool.acquire('b')).release(); // evicts 'a' (max 1); breaker 'b' created
+    expect(breakerCount).toBe(2);
+
+    // 'a' has no live entry/orphan/pending and its breaker is closed → GC prunes it.
+    await vi.advanceTimersByTimeAsync(1000);
+
+    (await pool.acquire('a')).release(); // breaker must be recreated → observable proof of pruning
+    expect(breakerCount).toBe(3);
+
+    await pool.stop();
+  });
+
+  it('retains an open breaker even when its key is gone', async () => {
+    let breakerCount = 0;
+    const pool = new RefCountedLruPool<string>({
+      max: 5,
+      mutexGcMs: 1000,
+      breaker: () => {
+        breakerCount += 1;
+        return new InMemoryCircuitBreaker({ failureThreshold: 1, cooldownMs: 60_000 });
+      },
+      factory: async () => {
+        throw new Error('down');
+      },
+    });
+    pool.start();
+
+    await expect(pool.acquire('a')).rejects.toThrow('down'); // breaker 'a' trips open, nothing cached
+    expect(breakerCount).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1000); // GC runs, but an open breaker is preserved
+
+    // still open (cooldown not elapsed) → short-circuits on the SAME breaker, no recreation
+    await expect(pool.acquire('a')).rejects.toBeTruthy();
+    expect(breakerCount).toBe(1);
+
+    await pool.stop();
+  });
+});
