@@ -3,5 +3,8 @@ packages:
   - 'examples/*'
   - 'benchmarks/*'
 
+# Only esbuild's postinstall is needed (tsup / vitest); other transitive native
+# build scripts (from testcontainers) are skipped — they're only used by the
+# opt-in integration test.
 onlyBuiltDependencies:
   - esbuild
